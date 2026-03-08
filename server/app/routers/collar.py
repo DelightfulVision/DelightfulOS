@@ -15,6 +15,7 @@ router = APIRouter(prefix="/collar", tags=["collar"])
 
 class TapRequest(BaseModel):
     tapper_id: str | None = None
+    target_user: str | None = None
 
 
 @router.websocket("/ws/{user_id}")
@@ -85,6 +86,7 @@ async def collar_tap(user_id: str, body: TapRequest | None = None):
         tapper_id: who performed the tap (another user's ID)
     """
     tapper_id = body.tapper_id if body else None
+    target_user = body.target_user if body else None
 
     # Try simulator first
     if await tap_collar(user_id):
@@ -98,6 +100,8 @@ async def collar_tap(user_id: str, body: TapRequest | None = None):
     value = {}
     if tapper_id:
         value["tapper_id"] = tapper_id
+    if target_user:
+        value["target_user"] = target_user
 
     await bus.emit_signal(Signal(
         source_device=device_id,
@@ -106,4 +110,4 @@ async def collar_tap(user_id: str, body: TapRequest | None = None):
         confidence=1.0,
         value=value,
     ))
-    return {"status": "tapped", "user_id": user_id, "tapper_id": tapper_id, "source": "direct"}
+    return {"status": "tapped", "user_id": user_id, "tapper_id": tapper_id, "target_user": target_user, "source": "direct"}

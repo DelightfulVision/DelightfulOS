@@ -80,10 +80,10 @@ class SupabaseRealtimeBridge:
     def _phoenix_topic(self) -> str:
         """Build the Phoenix topic name matching Spectacles convention.
 
-        Spectacles RealtimeCursor.ts joins: `cursor-${channelName}`
-        Phoenix wire format is: `realtime:cursor-${channelName}`
+        Phoenix wire format is: `realtime:{channelName}`
+        The channel name in Supabase client maps directly.
         """
-        return f"realtime:cursor-{self._channel}"
+        return f"realtime:{self._channel}"
 
     async def connect(self, supabase_url: str, supabase_token: str, channel_name: str):
         """Connect to Supabase Realtime and join a broadcast channel."""
@@ -123,18 +123,22 @@ class SupabaseRealtimeBridge:
             raise RuntimeError(f"Failed to join channel: {resp}")
 
         self._connected = True
-        log.info("Joined Supabase channel 'cursor-%s' (topic=%s)", channel_name, topic)
+        log.info("Joined Supabase channel '%s' (topic=%s)", channel_name, topic)
 
         # Start background tasks
         self._receive_task = asyncio.create_task(self._receive_loop())
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         self._state_push_task = asyncio.create_task(self._state_push_loop())
 
-        # Subscribe to OS actions for forwarding (only once)
+        # Subscribe to OS actions and signals for forwarding (only once)
         if not self._subscribed:
             bus.subscribe_action(self._on_os_action)
             bus.subscribe_signal(self._on_transcription, signal_type="live_input_transcription")
             bus.subscribe_signal(self._on_transcription, signal_type="live_output_transcription")
+            bus.subscribe_signal(self._on_collar_tap, signal_type="collar_tap")
+            bus.subscribe_signal(self._on_speaking, signal_type="speaking")
+            bus.subscribe_signal(self._on_speaking_confirmed, signal_type="speaking_confirmed")
+            bus.subscribe_signal(self._on_speech_ended, signal_type="speech_ended")
             self._subscribed = True
 
     async def disconnect(self):
@@ -344,6 +348,67 @@ class SupabaseRealtimeBridge:
             source=source,
         )
 
+    async def _on_collar_tap(self, signal: Signal):
+        """Broadcast collar tap to Spectacles for AR scene triggers.
+
+        The Snap scene expects:
+          user_id = target (person being looked at / interacted with)
+          sender_id = person tapping (the collar wearer)
+
+        For now, the collar wearer IS the tapper. The "target" could be
+        set by the dashboard or inferred from gaze tracking. If a target_user
+        is provided in the signal value, use it. Otherwise, broadcast the
+        tapper as user_id so the scene can trigger effects on them.
+        """
+        if not self._connected:
+            return
+
+        # If a target user is specified (e.g., alice taps while looking at bob),
+        # use that as user_id. Otherwise, the tapper themselves is the target.
+        target_user = signal.value.get("target_user", signal.source_user)
+        sender_id = signal.value.get("tapper_id", signal.source_user)
+
+        await self.broadcast("collar-tap", {
+            "user_id": target_user,
+            "sender_id": sender_id,
+            "device_id": signal.source_device,
+            "confidence": signal.confidence,
+            "timestamp": signal.timestamp,
+        })
+        log.info("Broadcast collar-tap: sender=%s target=%s to Spectacles",
+                 sender_id, target_user)
+
+    async def _on_speaking(self, signal: Signal):
+        """Broadcast speaking state to Spectacles."""
+        if not self._connected:
+            return
+        await self.broadcast("speaking", {
+            "user_id": signal.source_user,
+            "confidence": signal.confidence,
+            "source": signal.value.get("source", "piezo"),
+            "timestamp": signal.timestamp,
+        })
+
+    async def _on_speaking_confirmed(self, signal: Signal):
+        """Broadcast confirmed speech (piezo + mic) to Spectacles."""
+        if not self._connected:
+            return
+        await self.broadcast("speaking-confirmed", {
+            "user_id": signal.source_user,
+            "confidence": signal.confidence,
+            "source": signal.value.get("source", "pdm"),
+            "timestamp": signal.timestamp,
+        })
+
+    async def _on_speech_ended(self, signal: Signal):
+        """Broadcast speech end to Spectacles."""
+        if not self._connected:
+            return
+        await self.broadcast("speech-ended", {
+            "user_id": signal.source_user,
+            "timestamp": signal.timestamp,
+        })
+
     async def _on_os_action(self, action):
         """Forward OS actions to Spectacles via broadcast.
 
@@ -390,7 +455,7 @@ class SupabaseRealtimeBridge:
             return
 
     async def _state_push_loop(self):
-        """Periodically push user states to Spectacles (every 500ms).
+        """Periodically push user states to Spectacles (every 200ms).
 
         Sends two event types:
           - 'all-users-state': all users + cursor positions in one message
@@ -398,7 +463,7 @@ class SupabaseRealtimeBridge:
         """
         try:
             while self._connected:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
 
                 states = estimator.all_states()
                 if not states:
