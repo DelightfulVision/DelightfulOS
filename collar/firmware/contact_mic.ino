@@ -70,7 +70,7 @@ const int HEARTBEAT_INTERVAL_MS = 5000;
 // Taps create sharp peak transients above 0.06.
 float speechOnsetThreshold = 0.030;
 float preSpeechThreshold = 0.020;
-float tapDeltaThreshold = 0.060;  // peak above baseline
+float tapDeltaThreshold = 0.040;  // peak-over-peak-baseline ratio trigger
 const int TAP_DEBOUNCE_MS = 300;
 
 // === STATE ===
@@ -134,6 +134,11 @@ const float BASELINE_EMA_ALPHA = 0.02; // slow adaptation (~5s time constant)
 // Attack: instant (follows peak up). Release: exponential decay.
 float peakEnvelope = 0.0;
 const float ENVELOPE_RELEASE = 0.85;   // decay per frame (~150ms to half)
+
+// Peak baseline — tracks the ambient peak level (not RMS) so tap detection
+// compares peak-to-peak instead of peak-to-RMS (which inflates the delta).
+float baselinePeak = 0.0;
+const float BASELINE_PEAK_EMA_ALPHA = 0.03;
 
 // Tap state machine: IDLE -> SCAN -> (confirm drop) -> FIRED
 //   IDLE:  waiting for envelope to cross threshold
@@ -215,57 +220,34 @@ bool detectPreSpeech() {
 bool detectTap() {
     if (!baselineReady) return false;
 
-    // Reject during active speech
-    if (speechActive) {
-        tapState = TAP_IDLE;
-        return false;
-    }
-
-    // Post-tap mask: ignore piezo ringing after a confirmed tap
     unsigned long now = millis();
+
+    // Post-tap mask: ignore ringing after a confirmed tap
     if (now - lastTapMs < (unsigned long)TAP_MASK_MS) {
         tapState = TAP_IDLE;
         return false;
     }
 
     float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
-    float zcr = computeZCR(piezoBuffer, PIEZO_BUFFER_SIZE);
-
-    // Update envelope follower: fast attack, slow release
-    if (peak > peakEnvelope) {
-        peakEnvelope = peak;                              // instant attack
-    } else {
-        peakEnvelope = peakEnvelope * ENVELOPE_RELEASE;   // slow release
-    }
-
-    // Use max(peak, envelope) for threshold: raw peak catches sustained
-    // signals the envelope might dip below, envelope catches transients.
-    float effective = max(peak, peakEnvelope);
-    float delta = effective - baselineRMS;
+    float delta = peak - baselinePeak;
     bool aboveThreshold = delta > tapDeltaThreshold;
 
     switch (tapState) {
         case TAP_IDLE:
             if (aboveThreshold) {
-                // Threshold crossed — open scan window to find true peak
+                // Spike detected — start scanning for true peak
                 tapState = TAP_SCAN;
                 tapFrameCount = 1;
                 tapSpikePeak = peak;
-                tapSpikeZCR = zcr;
-                tapSpikeRMSMax = currentEnvelope;
             }
             break;
 
         case TAP_SCAN:
-            // Scan window: accumulate true peak over a few frames
+            // Accumulate true peak over scan window
             tapFrameCount++;
-            if (peak > tapSpikePeak) {
-                tapSpikePeak = peak;
-                tapSpikeZCR = zcr;
-            }
-            if (currentEnvelope > tapSpikeRMSMax) tapSpikeRMSMax = currentEnvelope;
+            if (peak > tapSpikePeak) tapSpikePeak = peak;
             if (tapFrameCount >= TAP_SCAN_FRAMES) {
-                // Scan done — now wait for signal to drop back
+                // Now wait for signal to drop back (confirms transient, not sustained)
                 tapState = TAP_CONFIRM_DROP;
                 tapFrameCount = 0;
             }
@@ -273,30 +255,17 @@ bool detectTap() {
 
         case TAP_CONFIRM_DROP:
             tapFrameCount++;
-            if (currentEnvelope > tapSpikeRMSMax) tapSpikeRMSMax = currentEnvelope;
             if (!aboveThreshold) {
-                // Peak dropped back. Check if spike had elevated RMS
-                // (vocalization) vs brief peak transient (tap).
-                // Tap: only a few samples spike, buffer RMS stays near baseline.
-                // Cough: entire buffer is elevated, RMS jumps way above baseline.
-                float rmsDelta = tapSpikeRMSMax - baselineRMS;
-                if (rmsDelta < tapDeltaThreshold * 0.8) {
-                    // RMS near baseline throughout — confirmed tap
-                    tapState = TAP_IDLE;
-                    lastTapMs = now;
-                    float confidence = min(1.0f, (tapSpikePeak - baselineRMS) / (tapDeltaThreshold * 2));
-                    Serial.printf("[TAP] peak=%.4f base=%.4f delta=%.4f zcr=%.3f conf=%.2f\n",
-                        tapSpikePeak, baselineRMS, tapSpikePeak - baselineRMS, tapSpikeZCR, confidence);
-                    return true;
-                } else {
-                    // RMS was elevated during spike — vocalization, not a tap
-                    tapState = TAP_IDLE;
-                    Serial.printf("[TAP] rejected: spike RMS %.4f >> base %.4f (cough/voice)\n",
-                        tapSpikeRMSMax, baselineRMS);
-                }
+                // Signal dropped back to baseline — confirmed tap!
+                tapState = TAP_IDLE;
+                lastTapMs = now;
+                float conf = min(1.0f, (tapSpikePeak - baselinePeak) / (tapDeltaThreshold * 2));
+                Serial.printf("[TAP] confirmed: peak=%.4f basePeak=%.4f delta=%.4f conf=%.2f\n",
+                    tapSpikePeak, baselinePeak, tapSpikePeak - baselinePeak, conf);
+                return true;
             }
             if (tapFrameCount > TAP_MAX_DROP_FRAMES) {
-                // Still above threshold — sustained, not a tap
+                // Still above threshold after too many frames — sustained, not a tap
                 tapState = TAP_IDLE;
                 Serial.printf("[TAP] rejected: sustained %d frames, peak=%.4f\n",
                     TAP_SCAN_FRAMES + tapFrameCount, tapSpikePeak);
@@ -516,7 +485,7 @@ void sendHeartbeat() {
     doc["wifi_rssi"] = WiFi.RSSI();
     doc["piezo_rms"] = currentEnvelope;
     doc["baseline_rms"] = baselineRMS;
-    doc["speech_active"] = speechActive;
+    doc["speech_active"] = false;  // speech detection disabled for hackathon
     doc["free_heap"] = ESP.getFreeHeap();
 
     String output;
@@ -537,7 +506,7 @@ void sendPiezoStream() {
     doc["peak"] = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
     doc["zcr"] = computeZCR(piezoBuffer, PIEZO_BUFFER_SIZE);
     doc["dc"] = computeMean(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0); // raw DC bias
-    doc["speech"] = speechActive;
+    doc["speech"] = false;  // speech detection disabled for hackathon
 
     String output;
     serializeJson(doc, output);
@@ -805,20 +774,24 @@ void loop() {
         envelopeHistory[envIdx] = currentEnvelope;
         envIdx = (envIdx + 1) % 50;
 
-        speechActive = currentEnvelope >= speechOnsetThreshold;
-        if (!preSpeechDetected) preSpeechDetected = detectPreSpeech();
-        if (speechActive) preSpeechDetected = false;
+        // Speech detection disabled for hackathon — focus on taps only
+        // speechActive = currentEnvelope >= speechOnsetThreshold;
+        // if (!preSpeechDetected) preSpeechDetected = detectPreSpeech();
+        // if (speechActive) preSpeechDetected = false;
 
-        // Boot auto-calibration: average RMS over first N quiet samples
+        // Boot auto-calibration: average RMS and peak over first N quiet samples
         if (bootCalibrating) {
             bootRMSSum += currentEnvelope;
+            float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
+            baselinePeak = (bootCalCount == 0) ? peak :
+                baselinePeak * (1.0 - BASELINE_PEAK_EMA_ALPHA) + peak * BASELINE_PEAK_EMA_ALPHA;
             bootCalCount++;
             if (bootCalCount >= BOOT_CAL_SAMPLES) {
                 baselineRMS = bootRMSSum / bootCalCount;
                 baselineReady = true;
                 bootCalibrating = false;
-                Serial.printf("[BOOT-CAL] baselineRMS=%.4f (~%d ADC) tapDelta=%.3f\n",
-                    baselineRMS, (int)(baselineRMS * 4095), tapDeltaThreshold);
+                Serial.printf("[BOOT-CAL] baselineRMS=%.4f basePeak=%.4f tapDelta=%.3f\n",
+                    baselineRMS, baselinePeak, tapDeltaThreshold);
             }
         }
 
@@ -828,9 +801,8 @@ void loop() {
             Serial.print(currentEnvelope * 1000, 2); Serial.print("\t");  // AC RMS (milli-units)
             Serial.print(peak * 1000, 2); Serial.print("\t");             // AC Peak
             Serial.print(baselineRMS * 1000, 2); Serial.print("\t");      // Baseline
-            Serial.print(speechOnsetThreshold * 1000, 2); Serial.print("\t"); // Speech thresh
             Serial.print(tapDeltaThreshold * 1000, 2); Serial.print("\t");    // Tap thresh
-            Serial.println(speechActive ? 10.0 : 0.0);                       // Speech flag
+            Serial.println(0.0);                                              // (speech disabled)
         }
 
         // Explicit calibration: collect baseline noise floor (more samples, more accurate)
@@ -868,9 +840,10 @@ void loop() {
         // don't pull the baseline up and desensitize detection.
         if (baselineReady && !bootCalibrating && !calibrating) {
             float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
-            bool quiet = !speechActive && (peak - baselineRMS) < tapDeltaThreshold * 0.5;
+            bool quiet = (peak - baselinePeak) < tapDeltaThreshold * 0.5;
             if (quiet) {
                 baselineRMS = baselineRMS * (1.0 - BASELINE_EMA_ALPHA) + currentEnvelope * BASELINE_EMA_ALPHA;
+                baselinePeak = baselinePeak * (1.0 - BASELINE_PEAK_EMA_ALPHA) + peak * BASELINE_PEAK_EMA_ALPHA;
             }
         }
     }
@@ -885,14 +858,13 @@ void loop() {
             if (detectTap()) {
                 sendEvent("touch", 1.0);
             }
-            // Pre-speech disabled: the rising-RMS heuristic fires on
-            // swallows, jaw movement, head turns. Needs per-user ML model.
+            // Speech detection disabled for hackathon — focus on taps only
             // if (preSpeechDetected && !speechActive) {
             //     sendEvent("about_to_speak", min(1.0f, currentEnvelope / speechOnsetThreshold));
             // }
-            if (speechActive) {
-                sendEvent("speaking", min(1.0f, currentEnvelope));
-            }
+            // if (speechActive) {
+            //     sendEvent("speaking", min(1.0f, currentEnvelope));
+            // }
         }
 
         // Always stream piezo telemetry for live dashboard
