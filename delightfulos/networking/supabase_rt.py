@@ -351,32 +351,24 @@ class SupabaseRealtimeBridge:
     async def _on_collar_tap(self, signal: Signal):
         """Broadcast collar tap to Spectacles for AR scene triggers.
 
-        The Snap scene expects:
-          user_id = target (person being looked at / interacted with)
-          sender_id = person tapping (the collar wearer)
+        The Snap FaceMeshVisibilityController listens on event "test-event"
+        for payload: { message: "disable <user_id>" } or { message: "enable <user_id>" }.
 
-        For now, the collar wearer IS the tapper. The "target" could be
-        set by the dashboard or inferred from gaze tracking. If a target_user
-        is provided in the signal value, use it. Otherwise, broadcast the
-        tapper as user_id so the scene can trigger effects on them.
+        On collar tap we send "disable <target_user>" to toggle the face mesh.
+        The target is the person being looked at (if provided), otherwise the tapper.
         """
         if not self._connected:
             return
 
-        # If a target user is specified (e.g., alice taps while looking at bob),
-        # use that as user_id. Otherwise, the tapper themselves is the target.
         target_user = signal.value.get("target_user", signal.source_user)
         sender_id = signal.value.get("tapper_id", signal.source_user)
 
-        await self.broadcast("collar-tap", {
-            "user_id": target_user,
-            "sender_id": sender_id,
-            "device_id": signal.source_device,
-            "confidence": signal.confidence,
-            "timestamp": signal.timestamp,
+        # Send in the format the Snap scene expects: test-event with message string
+        await self.broadcast("test-event", {
+            "message": f"disable {target_user}",
         })
-        log.info("Broadcast collar-tap: sender=%s target=%s to Spectacles",
-                 sender_id, target_user)
+        log.info("Broadcast test-event: 'disable %s' (sender=%s) to Spectacles",
+                 target_user, sender_id)
 
     async def _on_speaking(self, signal: Signal):
         """Broadcast speaking state to Spectacles."""

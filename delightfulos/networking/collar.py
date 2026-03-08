@@ -132,7 +132,7 @@ async def handle_events(ws: WebSocket, user_id: str, device_id: str | None = Non
                     signal_type=event_type,
                     confidence=event.get("confidence", 1.0),
                     value=event.get("value", {}),
-                    timestamp=data.get("timestamp", time.time()),
+                    timestamp=time.time(),  # always server time (firmware sends uptime, not epoch)
                 ))
 
             state = estimator.get(user_id)
