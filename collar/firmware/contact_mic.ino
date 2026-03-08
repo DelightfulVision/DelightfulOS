@@ -108,16 +108,27 @@ float calibrationSum = 0;
 int calibrationCount = 0;
 const int CALIBRATION_SAMPLES = 50; // ~5 seconds at 100ms intervals
 
-// Baseline (set by calibration, auto-calibrated on boot)
-// We track average RMS as the stable floor, then detect taps when
-// instantaneous peak exceeds (baselineRMS + tapDeltaThreshold).
-// RMS averages out noise; peak catches the transient spike.
+// Baseline — adaptive exponential moving average of RMS
+// Tap = instantaneous peak jumps above this floor then drops back.
+// EMA adapts to slow drift (temperature, sweat, fit changes) but
+// freezes during active events so spikes don't pollute the floor.
 float baselineRMS = 0.0;
 bool baselineReady = false;
 bool bootCalibrating = true;
 float bootRMSSum = 0;
 int bootCalCount = 0;
-const int BOOT_CAL_SAMPLES = 20; // ~2 seconds at 100ms intervals
+const int BOOT_CAL_SAMPLES = 20;       // ~2 seconds at 100ms
+const float BASELINE_EMA_ALPHA = 0.02; // slow adaptation (~5s time constant)
+
+// Tap state machine: IDLE -> SPIKE -> (confirm drop) -> FIRED
+// Requires spike above threshold AND return to baseline within N frames.
+// This rejects sustained pressure (speech, swallowing, head movement).
+enum TapState { TAP_IDLE, TAP_SPIKE };
+TapState tapState = TAP_IDLE;
+int tapSpikeFrames = 0;
+float tapSpikePeak = 0;
+const int TAP_MAX_SPIKE_FRAMES = 3;    // spike must resolve within 300ms
+const int TAP_MIN_SPIKE_FRAMES = 1;    // at least 1 frame above threshold
 
 // ============================================================
 // SIGNAL PROCESSING
@@ -158,16 +169,49 @@ bool detectPreSpeech() {
 
 bool detectTap() {
     if (!baselineReady) return false;
+    // Reject during active speech — speech raises peak sustained
+    if (speechActive) {
+        tapState = TAP_IDLE;
+        return false;
+    }
+
     float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
     float delta = peak - baselineRMS;
-    if (delta > tapDeltaThreshold) {
-        unsigned long now = millis();
-        if (now - lastTapMs > TAP_DEBOUNCE_MS) {
-            lastTapMs = now;
-            Serial.printf("[TAP] peak=%.4f baselineRMS=%.4f delta=%.4f\n",
-                peak, baselineRMS, delta);
-            return true;
-        }
+    bool aboveThreshold = delta > tapDeltaThreshold;
+
+    switch (tapState) {
+        case TAP_IDLE:
+            if (aboveThreshold) {
+                tapState = TAP_SPIKE;
+                tapSpikeFrames = 1;
+                tapSpikePeak = peak;
+            }
+            break;
+
+        case TAP_SPIKE:
+            tapSpikeFrames++;
+            if (peak > tapSpikePeak) tapSpikePeak = peak;
+
+            if (!aboveThreshold) {
+                // Signal dropped back — this is a tap shape (transient)
+                tapState = TAP_IDLE;
+                if (tapSpikeFrames >= TAP_MIN_SPIKE_FRAMES) {
+                    unsigned long now = millis();
+                    if (now - lastTapMs > TAP_DEBOUNCE_MS) {
+                        lastTapMs = now;
+                        float confidence = min(1.0f, (tapSpikePeak - baselineRMS) / (tapDeltaThreshold * 2));
+                        Serial.printf("[TAP] confirmed: peak=%.4f base=%.4f delta=%.4f frames=%d conf=%.2f\n",
+                            tapSpikePeak, baselineRMS, tapSpikePeak - baselineRMS, tapSpikeFrames, confidence);
+                        return true;
+                    }
+                }
+            } else if (tapSpikeFrames > TAP_MAX_SPIKE_FRAMES) {
+                // Sustained above threshold — not a tap (speech/movement)
+                tapState = TAP_IDLE;
+                Serial.printf("[TAP] rejected sustained: frames=%d peak=%.4f\n",
+                    tapSpikeFrames, tapSpikePeak);
+            }
+            break;
     }
     return false;
 }
@@ -683,6 +727,17 @@ void loop() {
                     serializeJson(doc, output);
                     ws.sendTXT(output);
                 }
+            }
+        }
+
+        // Adaptive baseline: slowly track drift when signal is quiet.
+        // Freeze during speech, taps, or any active event so spikes
+        // don't pull the baseline up and desensitize detection.
+        if (baselineReady && !bootCalibrating && !calibrating) {
+            float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
+            bool quiet = !speechActive && (peak - baselineRMS) < tapDeltaThreshold * 0.5;
+            if (quiet) {
+                baselineRMS = baselineRMS * (1.0 - BASELINE_EMA_ALPHA) + currentEnvelope * BASELINE_EMA_ALPHA;
             }
         }
     }
