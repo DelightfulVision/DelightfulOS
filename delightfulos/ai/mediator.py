@@ -39,8 +39,11 @@ Rules:
 
 
 def _extract_json(raw: str) -> dict:
-    """Extract JSON from model output, handling markdown wrapping."""
+    """Extract JSON from model output, handling markdown wrapping and thinking traces."""
     cleaned = raw.strip()
+    # Strip thinking traces (K2 Think V2 outputs <think>...</think> before answer)
+    if "</think>" in cleaned:
+        cleaned = cleaned.split("</think>", 1)[-1].strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
