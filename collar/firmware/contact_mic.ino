@@ -66,7 +66,7 @@ const int HEARTBEAT_INTERVAL_MS = 5000;
 // === THRESHOLDS ===
 float speechOnsetThreshold = 0.15;
 float preSpeechThreshold = 0.05;
-const float TAP_THRESHOLD = 0.6;
+float tapDeltaThreshold = 0.10;  // ~410 ADC counts above baseline peak
 const int TAP_DEBOUNCE_MS = 300;
 
 // === STATE ===
@@ -108,6 +108,17 @@ float calibrationSum = 0;
 int calibrationCount = 0;
 const int CALIBRATION_SAMPLES = 50; // ~5 seconds at 100ms intervals
 
+// Baseline (set by calibration, auto-calibrated on boot)
+// We track average RMS as the stable floor, then detect taps when
+// instantaneous peak exceeds (baselineRMS + tapDeltaThreshold).
+// RMS averages out noise; peak catches the transient spike.
+float baselineRMS = 0.0;
+bool baselineReady = false;
+bool bootCalibrating = true;
+float bootRMSSum = 0;
+int bootCalCount = 0;
+const int BOOT_CAL_SAMPLES = 20; // ~2 seconds at 100ms intervals
+
 // ============================================================
 // SIGNAL PROCESSING
 // ============================================================
@@ -146,12 +157,15 @@ bool detectPreSpeech() {
 }
 
 bool detectTap() {
+    if (!baselineReady) return false;
     float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
-    float crest = (currentEnvelope > 0) ? peak / currentEnvelope : 0;
-    if (peak > TAP_THRESHOLD && crest > 3.0) {
+    float delta = peak - baselineRMS;
+    if (delta > tapDeltaThreshold) {
         unsigned long now = millis();
         if (now - lastTapMs > TAP_DEBOUNCE_MS) {
             lastTapMs = now;
+            Serial.printf("[TAP] peak=%.4f baselineRMS=%.4f delta=%.4f\n",
+                peak, baselineRMS, delta);
             return true;
         }
     }
@@ -333,6 +347,10 @@ void wsEvent(WStype_t type, uint8_t* payload, size_t length) {
                     preSpeechThreshold = payload_obj["pre_speech_threshold"];
                     Serial.printf("[CFG] pre_speech_threshold=%.3f\n", preSpeechThreshold);
                 }
+                if (payload_obj.containsKey("tap_delta_threshold")) {
+                    tapDeltaThreshold = payload_obj["tap_delta_threshold"];
+                    Serial.printf("[CFG] tap_delta_threshold=%.3f\n", tapDeltaThreshold);
+                }
             }
             break;
         }
@@ -475,6 +493,8 @@ void processSerialConfig(String line) {
         Serial.printf("  WS Connected: %s\n", wsConnected ? "YES" : "NO");
         Serial.printf("  Raw Mode: %s\n", rawMode ? "ON" : "OFF");
         Serial.printf("  Piezo RMS: %.4f\n", currentEnvelope);
+        Serial.printf("  Baseline RMS: %.4f (%s)\n", baselineRMS, baselineReady ? "ready" : "calibrating");
+        Serial.printf("  Tap Delta Threshold: %.3f\n", tapDeltaThreshold);
         Serial.printf("  Speech Threshold: %.3f\n", speechOnsetThreshold);
         Serial.printf("  Free Heap: %d\n", ESP.getFreeHeap());
         Serial.printf("  Uptime: %lus\n", millis() / 1000);
@@ -623,25 +643,42 @@ void loop() {
         if (!preSpeechDetected) preSpeechDetected = detectPreSpeech();
         if (speechActive) preSpeechDetected = false;
 
-        // Auto-calibration: collect baseline noise floor
+        // Boot auto-calibration: average RMS over first N quiet samples
+        if (bootCalibrating) {
+            bootRMSSum += currentEnvelope;
+            bootCalCount++;
+            if (bootCalCount >= BOOT_CAL_SAMPLES) {
+                baselineRMS = bootRMSSum / bootCalCount;
+                baselineReady = true;
+                bootCalibrating = false;
+                Serial.printf("[BOOT-CAL] baselineRMS=%.4f (~%d ADC) tapDelta=%.3f\n",
+                    baselineRMS, (int)(baselineRMS * 4095), tapDeltaThreshold);
+            }
+        }
+
+        // Explicit calibration: collect baseline noise floor (more samples, more accurate)
         if (calibrating) {
             calibrationSum += currentEnvelope;
             calibrationCount++;
             if (calibrationCount >= CALIBRATION_SAMPLES) {
                 float baseline = calibrationSum / calibrationCount;
+                baselineRMS = baseline;
+                baselineReady = true;
                 // Set thresholds relative to baseline
                 preSpeechThreshold = baseline * 3.0;
                 speechOnsetThreshold = baseline * 8.0;
                 calibrating = false;
-                Serial.printf("[CAL] Done! baseline=%.4f pre=%.4f speech=%.4f\n",
-                    baseline, preSpeechThreshold, speechOnsetThreshold);
+                Serial.printf("[CAL] Done! baselineRMS=%.4f pre=%.4f speech=%.4f tapDelta=%.3f\n",
+                    baselineRMS, preSpeechThreshold, speechOnsetThreshold, tapDeltaThreshold);
                 // Report to server
                 if (wsConnected) {
                     JsonDocument doc;
                     doc["type"] = "calibration";
                     doc["baseline"] = baseline;
+                    doc["baseline_rms"] = baselineRMS;
                     doc["pre_speech_threshold"] = preSpeechThreshold;
                     doc["speech_threshold"] = speechOnsetThreshold;
+                    doc["tap_delta_threshold"] = tapDeltaThreshold;
                     String output;
                     serializeJson(doc, output);
                     ws.sendTXT(output);
