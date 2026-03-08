@@ -1,0 +1,17 @@
+name: Full IoB Stack
+description: Four-device system covering neck, head, chest, and ears. Comprehensive body state sensing with AR output and
+  ambient audio.
+devices:
+- collar_v1
+- spectacles
+- chest_band
+- earable
+system_dynamics:
+- dyadic
+- group
+- self
+system_principles:
+- shared_perception
+- interoception
+- somatic_markers
+- ambient_intelligence

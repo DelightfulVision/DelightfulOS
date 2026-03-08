@@ -1,0 +1,101 @@
+name: IoB Signal Ring
+body_site: finger
+signals:
+- type: ppg
+  direction: sense
+  component: SFH 7072
+  notes: PPG from finger — gold standard location for SpO2 and HR
+- type: eda
+  direction: sense
+  component: Dual electrode pair
+  notes: Electrodermal activity for arousal/stress (better signal than wrist)
+- type: temperature
+  direction: sense
+  component: NTC thermistor
+  notes: Skin temperature for circadian tracking, stress response
+- type: accelerometer
+  direction: sense
+  component: LIS2DH12
+  notes: Gesture recognition, sleep staging from hand movement
+outputs:
+- modality: haptic_vibration
+  directional: false
+  channels: 1
+  component: Coin LRA 6mm
+  notes: Subtle notifications — tap patterns for social cues
+intelligence:
+- affective
+- somatic
+temporal:
+- ambient
+- reflective
+- episodic
+electronics:
+  microcontroller: nRF52832
+  mcu_cores: 1
+  mcu_clock_mhz: 64
+  mcu_flash_mb: 0.5
+  mcu_ram_kb: 64
+  connectivity:
+  - ble
+  power_source: lipo
+  battery_mah: 20
+  estimated_runtime_hours: 72
+  voltage: 3.3
+  total_power_mw: 5
+  pcb_notes: Flexible PCB curved to ring form. Aggressive power optimization required.
+  bom_notes: nRF52832 ($3), SFH 7072 ($2), EDA electrodes ($0.50), LRA ($1). Total ~$12.
+firmware:
+  framework: zephyr
+  language: C
+  data_protocol: ble_gatt
+  update_rate_hz: 1.0
+  edge_processing:
+  - PPG HR/SpO2 calculation
+  - EDA tonic/phasic decomposition
+  - Sleep/wake detection from accel
+  server_processing:
+  - Stress composite score (EDA + HRV + temperature)
+  - Circadian phase estimation
+  - Arousal trend for social context
+  power_modes:
+  - continuous_ppg
+  - periodic_sampling_15min
+  - sleep_tracking
+  - 'off'
+  ota_update: false
+  notes: ''
+interaction:
+  consent_model: ambient_revocable
+  social_dynamics:
+  - self
+  embodiment_principles:
+  - interoception
+  - somatic_markers
+  - ambient_intelligence
+  social_signals:
+  - arousal_level
+  - stress_composite
+  - sleep_quality
+  signal_interpretations:
+    eda_spike: Emotional arousal — could be excitement, anxiety, or surprise
+    temperature_drop: Peripheral vasoconstriction — stress or cold exposure
+    low_hrv_sustained: Chronic stress or insufficient recovery
+  design_constraints:
+  - Must look like a normal ring — no obvious tech aesthetics
+  - Comfortable for 24/7 wear including sleep
+  - Water resistant for handwashing
+  - Battery life > 3 days to avoid charging fatigue
+  notes: ''
+form_factor:
+  form: ring
+  weight_grams: 4
+  dimensions_mm:
+  - 22
+  - 8
+  - 3
+  water_resistance: IPX7
+  materials:
+  - titanium shell
+  - medical-grade resin inner
+notes: ''

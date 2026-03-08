@@ -1,0 +1,99 @@
+name: Attention Earable
+body_site: ear
+signals:
+- type: microphone
+  direction: sense
+  sample_rate_hz: 16000
+  component: MEMS mic
+  notes: Ambient audio processing, speech detection
+- type: accelerometer
+  direction: sense
+  component: Built-in IMU
+  notes: Head nod detection, attention gestures
+- type: ppg
+  direction: sense
+  component: MAX30102
+  notes: In-ear PPG for heart rate — more accurate than wrist
+- type: bone_conduction_mic
+  direction: sense
+  component: Piezo element in ear canal
+  notes: Body-conducted sound — own voice vs ambient separation
+outputs:
+- modality: audio_bone_conduction
+  directional: false
+  channels: 2
+  component: Bone conduction transducers
+  notes: Private audio without blocking ambient sound
+intelligence:
+- perception
+- cognitive
+- affective
+temporal:
+- reactive
+- ambient
+electronics:
+  microcontroller: XIAO nRF52840
+  mcu_cores: 1
+  mcu_clock_mhz: 64
+  mcu_flash_mb: 1
+  mcu_ram_kb: 256
+  connectivity:
+  - ble
+  power_source: lipo
+  battery_mah: 60
+  estimated_runtime_hours: 8
+  voltage: 3.3
+  total_power_mw: 15
+  pcb_notes: Miniaturized for ear canal form factor. BLE only for power efficiency.
+  bom_notes: nRF52840 ($5), MAX30102 ($3), piezo ($0.50), bone transducer ($5). Total ~$18.
+firmware:
+  framework: zephyr
+  language: C
+  data_protocol: ble_gatt
+  update_rate_hz: 5.0
+  edge_processing:
+  - PPG heart rate extraction
+  - Head gesture classification (nod, shake, tilt)
+  - Ambient sound level monitoring
+  server_processing:
+  - Attention state estimation from head gestures + HR
+  - Speech vs ambient classification
+  - Cognitive load inference from HRV + head stability
+  power_modes:
+  - active
+  - low_power_monitoring
+  - sleep
+  ota_update: false
+  notes: ''
+interaction:
+  consent_model: opt_in
+  social_dynamics:
+  - self
+  - dyadic
+  embodiment_principles:
+  - proprioception
+  - ambient_intelligence
+  social_signals:
+  - attention_state
+  - head_gesture_response
+  signal_interpretations:
+    repeated_head_nods: Active listening, agreement
+    head_stability: Focused attention or deep thought
+    heart_rate_spike: Surprise, stress, or sudden cognitive demand
+  design_constraints:
+  - Must not block ambient hearing — safety requirement
+  - Comfortable for 4+ hour wear
+  - Discreet appearance — should look like normal earbuds
+  notes: ''
+form_factor:
+  form: in-ear
+  weight_grams: 8
+  dimensions_mm:
+  - 22
+  - 18
+  - 15
+  water_resistance: IPX5
+  materials:
+  - medical silicone tips
+  - ABS shell
+notes: ''

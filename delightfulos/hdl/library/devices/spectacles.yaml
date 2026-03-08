@@ -1,0 +1,108 @@
+name: Snap Spectacles (5th Gen)
+body_site: head
+signals:
+- type: camera
+  direction: sense
+  component: Dual RGB stereo cameras
+  notes: Scene capture, face tracking, hand tracking
+- type: depth
+  direction: sense
+  component: Spatial mesh engine
+  notes: Room-scale spatial mapping for AR anchoring
+- type: microphone
+  direction: sense
+  sample_rate_hz: 48000
+  component: Built-in MEMS array
+  notes: Voice commands, ambient audio, spatial audio capture
+- type: accelerometer
+  direction: sense
+  component: Built-in IMU
+- type: gyroscope
+  direction: sense
+  component: Built-in IMU
+outputs:
+- modality: visual_ar
+  directional: false
+  channels: 2
+  component: Dual waveguide display (26.3deg FOV)
+  notes: Stereoscopic AR overlays — face-tracked cubes, social cues, transcriptions
+- modality: audio_speaker
+  directional: false
+  channels: 2
+  component: Open-ear speakers
+  notes: Spatial audio, notification sounds
+intelligence:
+- perception
+- social
+- cognitive
+temporal:
+- reactive
+- ambient
+electronics:
+  microcontroller: Qualcomm AR1 Gen 1
+  mcu_cores: 4
+  mcu_clock_mhz: 2000
+  mcu_flash_mb: 0
+  mcu_ram_kb: 0
+  connectivity:
+  - wifi
+  - ble
+  power_source: lipo
+  battery_mah: 600
+  estimated_runtime_hours: 0.75
+  voltage: 3.3
+  total_power_mw: 0
+  pcb_notes: Snap's proprietary SoC. Runs Lens Studio applications (TypeScript/JavaScript). Network via SupabaseClient.lspkg
+    (preserves camera/audio) or InternetModule (disables camera).
+  bom_notes: ''
+firmware:
+  framework: bare_metal
+  language: TypeScript (Lens Studio)
+  data_protocol: websocket_json
+  update_rate_hz: 2.0
+  edge_processing:
+  - Face tracking and mesh anchoring
+  - Hand tracking (pinch, gesture)
+  - Spatial mapping and scene understanding
+  - AR rendering (cubes, overlays, text)
+  server_processing:
+  - Body state aggregation from collar signals
+  - Social mediation policy decisions
+  - Live transcription forwarding
+  - Overlay command generation
+  power_modes: []
+  ota_update: false
+  notes: Communicates via Supabase Realtime (Phoenix WebSocket protocol via snapcloud.dev). SupabaseClient.lspkg avoids InternetModule
+    privacy restriction — camera and audio remain active.
+interaction:
+  consent_model: ambient_revocable
+  social_dynamics:
+  - dyadic
+  - group
+  embodiment_principles:
+  - shared_perception
+  - exteroception
+  - umwelt
+  social_signals:
+  - gaze direction and fixation
+  - AR overlay visibility (what you see over others)
+  - cursor/attention position in shared space
+  signal_interpretations:
+    gaze_on_person: Attention directed at another person — social engagement
+    overlay_visible: User sees the other person's body state as AR information
+    overlay_removed: Collar tap triggered removal — physical consent withdrew digital perception
+  design_constraints:
+  - AR overlays must be subtle — support, not replace, human perception
+  - Must not occlude faces during conversation
+  - Social cues should be ambient, not demanding attention
+  notes: The perception layer. Renders the body state of others as shared AR overlays. Physical interactions (collar taps)
+    control what appears in your visual field.
+form_factor:
+  form: glasses
+  weight_grams: 226
+  water_resistance: IPX4
+  materials:
+  - plastic frame
+  - glass waveguides
+  notes: Snap's standalone AR glasses. 45-minute battery life limits session duration.
+notes: AR perception layer — renders shared body state as spatial overlays.

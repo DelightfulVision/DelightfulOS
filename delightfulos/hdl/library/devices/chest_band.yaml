@@ -1,0 +1,96 @@
+name: Respiration Band
+body_site: chest
+signals:
+- type: strain
+  direction: sense
+  sample_rate_hz: 100
+  component: Conductive rubber stretch sensor
+  notes: Breathing rate, depth, pattern (chest expansion)
+- type: ecg
+  direction: sense
+  sample_rate_hz: 250
+  resolution_bits: 16
+  component: AD8232 single-lead
+  notes: Heart rate, HRV (heart rate variability) for stress/recovery
+- type: temperature
+  direction: sense
+  component: Thermistor (skin contact)
+  notes: Core body temperature proxy from chest skin
+outputs:
+- modality: haptic_vibration
+  directional: false
+  channels: 1
+  component: ERM motor
+  notes: Breathing pace guide — vibratory rhythm to follow
+intelligence:
+- somatic
+- affective
+temporal:
+- ambient
+- reflective
+electronics:
+  microcontroller: XIAO ESP32-S3
+  mcu_cores: 2
+  mcu_clock_mhz: 240
+  mcu_flash_mb: 8
+  mcu_ram_kb: 512
+  connectivity:
+  - ble
+  power_source: lipo
+  battery_mah: 200
+  estimated_runtime_hours: 12
+  voltage: 3.3
+  total_power_mw: 50
+  pcb_notes: 'Minimal board: ECG front-end (AD8232) + stretch sensor ADC + BLE out.'
+  bom_notes: ESP32-S3 ($7), AD8232 ($5), stretch sensor ($8), ERM ($1). Total ~$25.
+firmware:
+  framework: arduino
+  language: C++
+  data_protocol: ble_gatt
+  update_rate_hz: 10.0
+  edge_processing:
+  - R-peak detection for heart rate
+  - Breathing rate from stretch sensor envelope
+  - HRV calculation (RMSSD, SDNN) for stress/recovery
+  server_processing:
+  - Long-term HRV trend analysis
+  - Stress level integration with collar signals
+  - Breathing pattern classification
+  power_modes:
+  - active_streaming
+  - periodic_sampling
+  - deep_sleep
+  ota_update: false
+  notes: ''
+interaction:
+  consent_model: opt_in
+  social_dynamics:
+  - self
+  embodiment_principles:
+  - interoception
+  - somatic_markers
+  social_signals:
+  - breathing_rate_change
+  - hrv_stress_indicator
+  signal_interpretations:
+    high_hrv: Parasympathetic dominance — relaxed, recovered state
+    low_hrv: Sympathetic dominance — stress, exertion, or cognitive load
+    breathing_rate_up: Arousal increase — anxiety, excitement, or physical effort
+  design_constraints:
+  - Must be comfortable under clothing for extended wear
+  - ECG electrodes need consistent skin contact
+  - Haptic must be perceptible through clothing layers
+  notes: ''
+form_factor:
+  form: band
+  weight_grams: 30
+  dimensions_mm:
+  - 300
+  - 40
+  - 5
+  water_resistance: IPX5
+  materials:
+  - elastic band
+  - conductive rubber
+  - medical-grade silicone
+notes: ''

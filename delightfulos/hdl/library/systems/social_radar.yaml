@@ -1,0 +1,13 @@
+name: Social Radar
+description: 'Collar + Spectacles: the minimum viable Internet of Bodies system. Senses body state at the throat, renders
+  shared perception through AR.'
+devices:
+- collar_v1
+- spectacles
+system_dynamics:
+- dyadic
+- group
+system_principles:
+- shared_perception
+- consent_play
+- somatic_markers

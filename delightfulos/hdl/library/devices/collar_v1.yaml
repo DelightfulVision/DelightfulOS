@@ -1,0 +1,139 @@
+name: DelightfulOS Collar v1
+body_site: neck
+signals:
+- type: vibration
+  direction: sense
+  sample_rate_hz: 4000
+  resolution_bits: 12
+  power_mw: 0.5
+  component: Piezo disc 27mm
+  notes: Contact mic on throat — pre-speech ~200ms before sound, speech, swallowing, jaw tension
+- type: microphone
+  direction: sense
+  sample_rate_hz: 16000
+  resolution_bits: 16
+  power_mw: 1.0
+  component: INMP441 MEMS
+  notes: Air-conducted speech capture for transcription via Gemini Live
+- type: depth
+  direction: sense
+  component: OV2640 + IR dot projector
+  notes: Scene understanding, gesture recognition, social proximity
+- type: accelerometer
+  direction: sense
+  sample_rate_hz: 100
+  component: LSM6DS3 (on ESP32-S3 Sense)
+  notes: Head orientation, posture shifts, engagement/disengagement detection
+- type: capacitive
+  direction: sense
+  component: Copper pad + ESP32 touch pin
+  notes: Collar tap detection — physical interface for others to control AR experience
+outputs:
+- modality: haptic_vibration
+  directional: true
+  channels: 4
+  power_mw: 120
+  component: LRA motors x4
+  notes: Front/left/right/back — directional cues for social mediation (yield, attend, turn)
+- modality: visual_led
+  directional: false
+  channels: 1
+  component: NeoPixel ring
+  notes: Status indicator — connection, speech active, calibration
+intelligence:
+- social
+- somatic
+- communicative
+- affective
+temporal:
+- anticipatory
+- reactive
+- ambient
+electronics:
+  microcontroller: XIAO ESP32-S3 Sense
+  mcu_cores: 2
+  mcu_clock_mhz: 240
+  mcu_flash_mb: 8
+  mcu_ram_kb: 512
+  connectivity:
+  - wifi
+  - ble
+  - i2s
+  power_source: lipo
+  battery_mah: 500
+  estimated_runtime_hours: 6
+  voltage: 3.3
+  total_power_mw: 250
+  pcb_notes: Custom PCB with flex cable to piezo. I2S bus for MEMS mic. Touch pins for collar tap detection. Motor driver
+    (DRV2605L) for haptics.
+  bom_notes: ESP32-S3 Sense (~$7), piezo disc ($0.50), INMP441 ($2), 4x LRA motors ($8), DRV2605L ($3), LiPo 500mAh ($5).
+    Total BOM ~$30.
+firmware:
+  framework: arduino
+  language: C++
+  data_protocol: websocket_json
+  update_rate_hz: 5.0
+  edge_processing:
+  - Piezo VAD (voice activity detection) via zero-crossing + energy threshold
+  - Touch detection via capacitive threshold
+  - IMU orientation fusion (complementary filter)
+  - WiFi RSSI monitoring for connection quality
+  server_processing:
+  - Spectral feature extraction (MFCCs, formants)
+  - Speech transcription via Gemini Live
+  - Body state estimation (speech_active, stress_level, engagement)
+  - Social mediation via LLM (conflict resolution, turn-taking)
+  power_modes:
+  - active
+  - low_power_listening
+  - deep_sleep
+  ota_update: true
+  notes: 'Dual mode: event JSON (5Hz) for signals, raw PCM stream (16kHz) for audio. WebSocket reconnection with exponential
+    backoff.'
+interaction:
+  consent_model: mutual
+  social_dynamics:
+  - dyadic
+  - group
+  - asymmetric
+  embodiment_principles:
+  - interoception
+  - consent_play
+  - somatic_markers
+  - shared_perception
+  - affordance
+  social_signals:
+  - pre-speech intent (~200ms before vocalization)
+  - speech/silence turn-taking state
+  - vocal cord tension as stress proxy
+  - orientation shift as engagement/disengagement
+  - collar tap as consent-based AR control
+  signal_interpretations:
+    piezo_energy_spike: User is about to speak — vocal cord preparation detected
+    sustained_high_tension: User is stressed or anxious — vocal cord tension elevated
+    orientation_away: User is disengaging from conversation — head turning
+    collar_tap: Another person is interacting with this user's body-interface — consent-based shared control of AR perception
+    breathing_rate_increase: Arousal or exertion — sympathetic activation
+  design_constraints:
+  - Collar must be visible but not obtrusive — signals social openness
+  - Tap surface must be accessible to others — not hidden under clothing
+  - Haptic feedback must be subtle enough to not disrupt conversation
+  - Device must feel like jewelry, not medical equipment
+  - 'Cultural sensitivity: collar sits at a site loaded with trust and vulnerability'
+  notes: 'The collar is a physical interface that others interact with. Your body becomes a shared control surface: tapping
+    someone''s collar changes what AR overlays appear over them, creating a tangible link between physical touch and digital
+    perception.'
+form_factor:
+  form: collar/choker
+  weight_grams: 45
+  dimensions_mm:
+  - 160
+  - 30
+  - 12
+  water_resistance: IPX4
+  materials:
+  - flexible PCB
+  - silicone band
+  - 3D printed enclosure (TPU)
+  notes: Adjustable band with magnetic clasp. Piezo node sits at front of throat. Haptic motors distributed around circumference.
+notes: Near-egocentric wearable for social AR mediation within an Internet of Bodies framework.

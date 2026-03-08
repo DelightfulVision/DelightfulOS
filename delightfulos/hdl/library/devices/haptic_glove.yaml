@@ -1,0 +1,111 @@
+name: Social Touch Glove
+body_site: hand
+signals:
+- type: pressure
+  direction: sense
+  sample_rate_hz: 100
+  component: FSR array (5 fingertips + palm)
+  notes: Grip force, touch pressure, object manipulation
+- type: capacitive
+  direction: sense
+  component: Capacitive mesh
+  notes: Touch detection for interpersonal contact
+- type: accelerometer
+  direction: sense
+  component: MPU6050
+  notes: Hand gesture recognition
+- type: emg
+  direction: sense
+  sample_rate_hz: 500
+  component: Dry EMG electrodes on forearm strap
+  notes: Finger movement intent, grip strength, micro-gestures
+outputs:
+- modality: haptic_vibration
+  directional: true
+  channels: 6
+  component: LRA array (5 fingers + palm)
+  notes: Per-finger haptic feedback for remote touch and social cues
+- modality: haptic_electrotactile
+  directional: true
+  channels: 4
+  component: TENS electrodes on fingertips
+  notes: Fine texture and pressure simulation
+intelligence:
+- social
+- motor
+- communicative
+temporal:
+- reactive
+- anticipatory
+electronics:
+  microcontroller: ESP32-S3
+  mcu_cores: 2
+  mcu_clock_mhz: 240
+  mcu_flash_mb: 8
+  mcu_ram_kb: 512
+  connectivity:
+  - wifi
+  - ble
+  power_source: lipo
+  battery_mah: 300
+  estimated_runtime_hours: 4
+  voltage: 3.3
+  total_power_mw: 400
+  pcb_notes: Flex PCB along back of hand. EMG front-end on forearm strap. High current draw from haptic actuators requires
+    boost converter.
+  bom_notes: ''
+firmware:
+  framework: arduino
+  language: C++
+  data_protocol: websocket_json
+  update_rate_hz: 20.0
+  edge_processing:
+  - Gesture classification from IMU + EMG
+  - Touch event detection and force mapping
+  - Haptic pattern generation from server commands
+  server_processing:
+  - Social touch interpretation (handshake, pat, hold)
+  - Remote haptic relay between users
+  - Gesture-to-AR-command mapping
+  power_modes: []
+  ota_update: false
+  notes: ''
+interaction:
+  consent_model: mutual
+  social_dynamics:
+  - dyadic
+  - asymmetric
+  embodiment_principles:
+  - consent_play
+  - shared_perception
+  - extended_mind
+  - affordance
+  social_signals:
+  - handshake_quality (grip strength, duration, tremor)
+  - interpersonal_touch (location, pressure, intent)
+  - gesture_to_others (wave, point, beckon)
+  signal_interpretations:
+    firm_handshake: Confidence, engagement, social greeting
+    light_touch: Comfort, reassurance, or attention-getting
+    tremor: Nervousness, excitement, or medical condition
+    palm_sweat: Sympathetic arousal (detectable via capacitive drift)
+  design_constraints:
+  - Must preserve manual dexterity — no thick fingertips
+  - Haptics must feel natural, not mechanical
+  - Touch sensing must distinguish social touch from object manipulation
+  - Mutual consent required for remote haptic transmission
+  notes: Enables shared touch experiences across distance. One person's handshake can be felt by another through haptic relay.
+    The glove makes hands into a bidirectional communication channel.
+form_factor:
+  form: glove
+  weight_grams: 85
+  dimensions_mm:
+  - 200
+  - 100
+  - 5
+  materials:
+  - lycra fabric
+  - conductive threads
+  - flex PCB
+  - silicone fingertips
+notes: ''

@@ -1,0 +1,15 @@
+name: Intimate IoB
+description: 'Ring + Collar + Spectacles: sensing at the most socially significant sites. Finger for continuous physiological
+  state, neck for speech and social interface, head for shared AR perception.'
+devices:
+- smart_ring
+- collar_v1
+- spectacles
+system_dynamics:
+- dyadic
+- asymmetric
+system_principles:
+- shared_perception
+- consent_play
+- interoception
+- umwelt
