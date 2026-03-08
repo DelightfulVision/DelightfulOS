@@ -60,13 +60,17 @@ const int LED_PIN = LED_BUILTIN;
 const int PIEZO_SAMPLE_RATE = 4000;
 const int PIEZO_BUFFER_SIZE = 256;
 const int ANALYSIS_INTERVAL_MS = 100;
-const int SEND_INTERVAL_MS = 200;
+const int SEND_INTERVAL_MS = 100;
 const int HEARTBEAT_INTERVAL_MS = 5000;
 
 // === THRESHOLDS ===
-float speechOnsetThreshold = 0.15;
-float preSpeechThreshold = 0.05;
-float tapDeltaThreshold = 0.10;  // ~410 ADC counts above baseline peak
+// AC-coupled thresholds (DC offset removed in signal processing).
+// Quiet ambient AC RMS is ~0.013 with peak ~0.041.
+// Speech should drive AC RMS well above 0.03.
+// Taps create sharp peak transients above 0.06.
+float speechOnsetThreshold = 0.030;
+float preSpeechThreshold = 0.020;
+float tapDeltaThreshold = 0.060;  // peak above baseline
 const int TAP_DEBOUNCE_MS = 300;
 
 // === STATE ===
@@ -101,6 +105,12 @@ HapticPulse hapticSlots[4] = {{0,0,0,0,false},{0,0,0,0,false},{0,0,0,0,false},{0
 unsigned long lastAnalysisMs = 0;
 unsigned long lastSendMs = 0;
 unsigned long lastHeartbeatMs = 0;
+
+// WiFi mode flag (false = serial-only for Pi bridge)
+bool wifiMode = false;
+
+// Serial plotter mode: outputs tab-separated values for Arduino Serial Plotter
+bool plotterMode = false;
 
 // Calibration
 bool calibrating = false;
@@ -144,31 +154,45 @@ const int TAP_MASK_MS = 400;       // post-tap mask: ignore piezo ringing
 // SIGNAL PROCESSING
 // ============================================================
 
+float computeMean(int16_t* buffer, int size, float scale) {
+    float sum = 0;
+    for (int i = 0; i < size; i++) sum += (float)buffer[i] / scale;
+    return sum / size;
+}
+
 float computeRMS(int16_t* buffer, int size, float scale) {
+    // AC-coupled RMS: subtract DC mean first so we measure actual
+    // signal energy, not the bias point. Without this, a DC offset
+    // of 620/4095 dominates and real vibrations are invisible.
+    float mean = computeMean(buffer, size, scale);
     float sum = 0;
     for (int i = 0; i < size; i++) {
-        float val = (float)buffer[i] / scale;
+        float val = (float)buffer[i] / scale - mean;
         sum += val * val;
     }
     return sqrt(sum / size);
 }
 
 float computePeak(int16_t* buffer, int size, float scale) {
+    // AC-coupled peak: measures max deviation from mean.
+    float mean = computeMean(buffer, size, scale);
     float peak = 0;
     for (int i = 0; i < size; i++) {
-        float val = abs((float)buffer[i] / scale);
+        float val = abs((float)buffer[i] / scale - mean);
         if (val > peak) peak = val;
     }
     return peak;
 }
 
 float computeZCR(int16_t* buffer, int size) {
-    // Zero-crossing rate: taps have broadband energy (high ZCR),
-    // speech has harmonic structure (lower ZCR).
+    // Zero-crossing rate relative to signal mean (not hardcoded midpoint).
+    // Taps have broadband energy (high ZCR), speech has harmonics (lower ZCR).
+    float mean = 0;
+    for (int i = 0; i < size; i++) mean += buffer[i];
+    mean /= size;
     int crossings = 0;
-    int midpoint = 2048; // 12-bit ADC mid-rail
     for (int i = 1; i < size; i++) {
-        if ((buffer[i] >= midpoint) != (buffer[i-1] >= midpoint)) crossings++;
+        if ((buffer[i] >= mean) != (buffer[i-1] >= mean)) crossings++;
     }
     return (float)crossings / (float)size;
 }
@@ -468,7 +492,6 @@ void wsEvent(WStype_t type, uint8_t* payload, size_t length) {
 }
 
 void sendEvent(const char* eventType, float confidence) {
-    if (!wsConnected) return;
     JsonDocument doc;
     doc["type"] = "events";
     doc["timestamp"] = millis() / 1000.0;
@@ -479,28 +502,50 @@ void sendEvent(const char* eventType, float confidence) {
 
     String output;
     serializeJson(doc, output);
-    ws.sendTXT(output);
-    Serial.printf("[TX] %s (%.2f)\n", eventType, confidence);
+
+    // Send over WebSocket if connected, always send over Serial for Pi bridge
+    if (wsConnected) ws.sendTXT(output);
+    Serial.println("JSON:" + output);
 }
 
 void sendHeartbeat() {
-    if (!wsConnected) return;
     JsonDocument doc;
     doc["type"] = "heartbeat";
     doc["timestamp"] = millis() / 1000.0;
     doc["uptime_s"] = millis() / 1000;
     doc["wifi_rssi"] = WiFi.RSSI();
     doc["piezo_rms"] = currentEnvelope;
+    doc["baseline_rms"] = baselineRMS;
     doc["speech_active"] = speechActive;
     doc["free_heap"] = ESP.getFreeHeap();
 
     String output;
     serializeJson(doc, output);
-    ws.sendTXT(output);
+    if (wsConnected) ws.sendTXT(output);
+    Serial.println("JSON:" + output);
+}
+
+void sendPiezoStream() {
+    // Lightweight telemetry frame (~100 bytes) for live dashboard plotting.
+    // Sent every SEND_INTERVAL_MS (200ms) = 5 Hz continuous stream.
+    // All values are AC-coupled (DC mean removed).
+    JsonDocument doc;
+    doc["type"] = "piezo_stream";
+    doc["ts"] = millis() / 1000.0;
+    doc["rms"] = currentEnvelope;
+    doc["base"] = baselineRMS;
+    doc["peak"] = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
+    doc["zcr"] = computeZCR(piezoBuffer, PIEZO_BUFFER_SIZE);
+    doc["dc"] = computeMean(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0); // raw DC bias
+    doc["speech"] = speechActive;
+
+    String output;
+    serializeJson(doc, output);
+    if (wsConnected) ws.sendTXT(output);
+    Serial.println("JSON:" + output);
 }
 
 void sendRawAudio() {
-    if (!wsConnected) return;
     JsonDocument doc;
     doc["type"] = "raw_audio";
     doc["timestamp"] = millis() / 1000.0;
@@ -528,7 +573,9 @@ void sendRawAudio() {
 
     String output;
     serializeJson(doc, output);
-    ws.sendTXT(output);
+    if (wsConnected) ws.sendTXT(output);
+    // Raw audio is too large for serial at 115200 baud — only send over WS.
+    // Serial gets events and heartbeats only.
 }
 
 // ============================================================
@@ -614,12 +661,17 @@ void processSerialConfig(String line) {
         delay(100);
         ESP.restart();
     }
+    else if (line == "PLOTTER") {
+        plotterMode = !plotterMode;
+        Serial.printf("[CFG] Plotter mode: %s\n", plotterMode ? "ON" : "OFF");
+    }
     else if (line == "HELP") {
         Serial.println("Commands:");
         Serial.println("  WIFI:ssid:password  — Set WiFi credentials");
         Serial.println("  SERVER:host:port    — Set server address");
         Serial.println("  USER:user_id        — Set user ID");
         Serial.println("  RAW:1 / RAW:0       — Toggle raw audio mode");
+        Serial.println("  PLOTTER             — Toggle serial plotter output");
         Serial.println("  STATUS              — Show current status");
         Serial.println("  REBOOT              — Restart collar");
         Serial.println("  HELP                — This message");
@@ -673,8 +725,9 @@ void setup() {
     // Load saved config from NVS
     loadConfig();
 
-    // GPIO
+    // GPIO — ADC config for maximum piezo sensitivity
     analogReadResolution(12);
+    analogSetAttenuation(ADC_0db);  // 0-950mV range (3x more sensitive than default 11dB)
     pinMode(PIEZO_PIN, INPUT);
     pinMode(HAPTIC_FRONT, OUTPUT);
     pinMode(HAPTIC_LEFT, OUTPUT);
@@ -692,26 +745,29 @@ void setup() {
     memset(pdmBuffer, 0, sizeof(pdmBuffer));
 
     // WiFi (10 second timeout — accepts serial config during wait)
-    if (!connectWiFi(10000)) {
-        Serial.println("[SYS] Running without WiFi. Configure via Serial and REBOOT.");
-        // Blink LED to indicate no WiFi
+    bool wifiOk = connectWiFi(10000);
+    if (!wifiOk) {
+        Serial.println("[SYS] No WiFi — running in serial-only mode (Pi bridge).");
+        Serial.println("[SYS] Sensor loop active. JSON frames output on Serial.");
         for (int i = 0; i < 5; i++) {
             digitalWrite(LED_PIN, HIGH); delay(100);
             digitalWrite(LED_PIN, LOW); delay(100);
         }
-        return;
     }
 
-    // WebSocket
-    String path = rawMode
-        ? String("/collar/ws/") + userID + "/raw"
-        : String("/collar/ws/") + userID;
-    ws.begin(serverHost.c_str(), serverPort, path.c_str());
-    ws.onEvent(wsEvent);
-    ws.setReconnectInterval(3000);
+    wifiMode = wifiOk;
 
-    Serial.printf("[WS] Connecting to ws://%s:%d%s\n",
-        serverHost.c_str(), serverPort, path.c_str());
+    // WebSocket (only if WiFi connected)
+    if (wifiOk) {
+        String path = rawMode
+            ? String("/collar/ws/") + userID + "/raw"
+            : String("/collar/ws/") + userID;
+        ws.begin(serverHost.c_str(), serverPort, path.c_str());
+        ws.onEvent(wsEvent);
+        ws.setReconnectInterval(3000);
+        Serial.printf("[WS] Connecting to ws://%s:%d%s\n",
+            serverHost.c_str(), serverPort, path.c_str());
+    }
 }
 
 // ============================================================
@@ -725,7 +781,7 @@ void loop() {
         processSerialConfig(line);
     }
 
-    ws.loop();
+    if (wifiMode) ws.loop();
     updateHaptics();
 
     // Read PDM mic (non-blocking)
@@ -764,6 +820,17 @@ void loop() {
                 Serial.printf("[BOOT-CAL] baselineRMS=%.4f (~%d ADC) tapDelta=%.3f\n",
                     baselineRMS, (int)(baselineRMS * 4095), tapDeltaThreshold);
             }
+        }
+
+        // Serial plotter output: raw ADC, AC RMS, peak, baseline, thresholds
+        if (plotterMode) {
+            float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
+            Serial.print(currentEnvelope * 1000, 2); Serial.print("\t");  // AC RMS (milli-units)
+            Serial.print(peak * 1000, 2); Serial.print("\t");             // AC Peak
+            Serial.print(baselineRMS * 1000, 2); Serial.print("\t");      // Baseline
+            Serial.print(speechOnsetThreshold * 1000, 2); Serial.print("\t"); // Speech thresh
+            Serial.print(tapDeltaThreshold * 1000, 2); Serial.print("\t");    // Tap thresh
+            Serial.println(speechActive ? 10.0 : 0.0);                       // Speech flag
         }
 
         // Explicit calibration: collect baseline noise floor (more samples, more accurate)
@@ -818,13 +885,18 @@ void loop() {
             if (detectTap()) {
                 sendEvent("touch", 1.0);
             }
-            if (preSpeechDetected && !speechActive) {
-                sendEvent("about_to_speak", min(1.0f, currentEnvelope / speechOnsetThreshold));
-            }
+            // Pre-speech disabled: the rising-RMS heuristic fires on
+            // swallows, jaw movement, head turns. Needs per-user ML model.
+            // if (preSpeechDetected && !speechActive) {
+            //     sendEvent("about_to_speak", min(1.0f, currentEnvelope / speechOnsetThreshold));
+            // }
             if (speechActive) {
                 sendEvent("speaking", min(1.0f, currentEnvelope));
             }
         }
+
+        // Always stream piezo telemetry for live dashboard
+        sendPiezoStream();
     }
 
     // Heartbeat (every 5s)

@@ -192,6 +192,21 @@
   </div>
 </div>
 
+<div class="grid">
+  <div class="card">
+    <h2>Real Piezo Telemetry (hardware ADC)</h2>
+    <div id="real-piezo-area">
+      <div style="color:#555;font-size:0.85em">Connect a collar to see real piezo data...</div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Microphone (USB on Pi)</h2>
+    <div id="mic-area">
+      <div style="color:#555;font-size:0.85em">Connect a mic to see audio levels...</div>
+    </div>
+  </div>
+</div>
+
 <div class="grid full">
   <div class="card">
     <h2>Signal Timeline</h2>
@@ -648,6 +663,243 @@ function renderPiezoArea(users) {
 }
 
 // ============================================================
+// Real piezo telemetry (hardware ADC values from collar)
+// ============================================================
+const REAL_PIEZO_LEN = 300; // ~2.5 min at 500ms WS rate
+const realPiezoHistory = {}; // uid -> {rms:[], baseline:[]}
+
+function pushRealPiezo(uid, rms, baseline, peak) {
+  if (!realPiezoHistory[uid]) realPiezoHistory[uid] = {rms:[], baseline:[], peak:[]};
+  const h = realPiezoHistory[uid];
+  h.rms.push(rms);
+  h.baseline.push(baseline);
+  h.peak.push(peak || rms);
+  if (h.rms.length > REAL_PIEZO_LEN) { h.rms.shift(); h.baseline.shift(); h.peak.shift(); }
+}
+
+function renderRealPiezoArea(piezoData) {
+  const area = document.getElementById('real-piezo-area');
+  const uids = Object.keys(piezoData);
+  if (!uids.length) {
+    area.innerHTML = '<div style="color:#555;font-size:0.85em">Connect a collar to see real piezo data...</div>';
+    area.dataset.uids = '';
+    return;
+  }
+  const key = uids.sort().join(',');
+  if (area.dataset.uids !== key) {
+    area.dataset.uids = key;
+    let html = '';
+    for (const uid of uids) {
+      const color = getUserColor(uid);
+      html += `<div class="chart-container">
+        <div class="chart-label">
+          <span style="color:${color}">${esc(uid)} — Real Piezo ADC (RMS + baseline)</span>
+          <span style="color:#555;font-size:0.9em">~2.5 min window</span>
+        </div>
+        <canvas id="real-piezo-${uid}" height="120"></canvas>
+        <div class="chart-legend">
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:${color}"></span>RMS</span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:${color};opacity:0.3"></span>Peak</span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#555"></span>Baseline</span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#f8717166"></span>Speech thresh</span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#a78bfa66"></span>Tap thresh</span>
+        </div>
+      </div>`;
+    }
+    area.innerHTML = html;
+  }
+}
+
+function drawRealPiezoChart(canvas, uid) {
+  const h = realPiezoHistory[uid];
+  if (!h || h.rms.length < 2) return;
+
+  const dpr = devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width, ht = 120;
+  canvas.width = w*dpr; canvas.height = ht*dpr;
+  canvas.style.height = ht+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = '#0a0a12'; ctx.fillRect(0,0,w,ht);
+
+  // Y range: auto-scale to data with some padding
+  const allVals = [...h.rms, ...h.baseline, ...(h.peak || [])];
+  let yMin = Math.min(...allVals) * 0.9;
+  let yMax = Math.max(...allVals, 0.02) * 1.1; // ensure thresholds visible
+  if (yMax - yMin < 0.01) { yMin -= 0.05; yMax += 0.05; }
+
+  const toY = v => ht - ((v - yMin) / (yMax - yMin)) * (ht - 16) - 8;
+  const toX = i => (i / (REAL_PIEZO_LEN - 1)) * w;
+
+  // Grid
+  ctx.strokeStyle = '#1a1a2a'; ctx.lineWidth = 1;
+  for (let i=0;i<=4;i++){const y=ht*i/4; ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+
+  // Threshold lines
+  const speechThresh = 0.030;
+  const tapBaseDelta = 0.060;
+  const latestBaseline = h.baseline[h.baseline.length-1] || 0.15;
+
+  // Speech threshold
+  ctx.strokeStyle = '#f8717166'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(0, toY(speechThresh)); ctx.lineTo(w, toY(speechThresh)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Tap threshold (baseline + delta)
+  const tapThresh = latestBaseline + tapBaseDelta;
+  ctx.strokeStyle = '#a78bfa44'; ctx.lineWidth = 1; ctx.setLineDash([3,5]);
+  ctx.beginPath(); ctx.moveTo(0, toY(tapThresh)); ctx.lineTo(w, toY(tapThresh)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Y-axis labels
+  ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+  ctx.fillText(yMax.toFixed(3), w-2, 10);
+  ctx.fillText(((yMax+yMin)/2).toFixed(3), w-2, ht/2+3);
+  ctx.fillText(yMin.toFixed(3), w-2, ht-2);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#f8717188'; ctx.fillText('speech', 2, toY(speechThresh)-3);
+  ctx.fillStyle = '#a78bfa66'; ctx.fillText('tap', 2, toY(tapThresh)-3);
+
+  // Baseline line
+  const basePts = [];
+  for (let i=0;i<h.baseline.length;i++) basePts.push({x:toX(i + REAL_PIEZO_LEN - h.baseline.length), y:toY(h.baseline[i])});
+  if (basePts.length >= 2) {
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7;
+    ctx.beginPath(); catmullRomPath(ctx, basePts, 0.25); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Peak line (light, behind RMS)
+  const color = getUserColor(uid);
+  if (h.peak && h.peak.length >= 2) {
+    const peakPts = [];
+    for (let i=0;i<h.peak.length;i++) peakPts.push({x:toX(i + REAL_PIEZO_LEN - h.peak.length), y:toY(h.peak[i])});
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.globalAlpha = 0.25;
+    ctx.beginPath(); catmullRomPath(ctx, peakPts, 0.25); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // RMS line
+  const rmsPts = [];
+  for (let i=0;i<h.rms.length;i++) rmsPts.push({x:toX(i + REAL_PIEZO_LEN - h.rms.length), y:toY(h.rms[i])});
+  if (rmsPts.length >= 2) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
+    ctx.beginPath(); catmullRomPath(ctx, rmsPts, 0.25); ctx.stroke();
+
+    // Fill under
+    ctx.globalAlpha = 0.08; ctx.fillStyle = color;
+    ctx.lineTo(rmsPts[rmsPts.length-1].x, ht);
+    ctx.lineTo(rmsPts[0].x, ht);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Current value dot + label
+    const last = rmsPts[rmsPts.length-1];
+    ctx.beginPath(); ctx.arc(last.x, last.y, 3, 0, Math.PI*2);
+    ctx.fillStyle = color; ctx.globalAlpha = 0.9; ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(h.rms[h.rms.length-1].toFixed(4), last.x - 8, last.y - 6);
+  }
+}
+
+// ============================================================
+// ============================================================
+// Microphone telemetry (USB mic on Pi, via raw collar endpoint)
+// ============================================================
+const MIC_LEN = 300;
+const micHistory = {}; // uid -> {rms:[]}
+
+function pushMic(uid, rms) {
+  if (!micHistory[uid]) micHistory[uid] = {rms:[]};
+  micHistory[uid].rms.push(rms);
+  if (micHistory[uid].rms.length > MIC_LEN) micHistory[uid].rms.shift();
+}
+
+function renderMicArea(micData) {
+  const area = document.getElementById('mic-area');
+  const uids = Object.keys(micData);
+  if (!uids.length) {
+    area.innerHTML = '<div style="color:#555;font-size:0.85em">Connect a mic to see audio levels...</div>';
+    area.dataset.uids = '';
+    return;
+  }
+  const key = uids.sort().join(',');
+  if (area.dataset.uids !== key) {
+    area.dataset.uids = key;
+    let html = '';
+    for (const uid of uids) {
+      html += `<div class="chart-container">
+        <div class="chart-label">
+          <span style="color:#60a5fa">${esc(uid)} — Mic RMS</span>
+          <span id="mic-speech-${uid}" style="font-size:0.8em;color:#555">silent</span>
+        </div>
+        <canvas id="mic-${uid}" height="90"></canvas>
+      </div>`;
+    }
+    area.innerHTML = html;
+  }
+  // Update speech indicator
+  for (const uid of uids) {
+    const el = document.getElementById('mic-speech-' + uid);
+    if (el) {
+      const sp = micData[uid].speech;
+      el.textContent = sp ? 'SPEECH' : 'silent';
+      el.style.color = sp ? '#4ade80' : '#555';
+    }
+  }
+}
+
+function drawMicChart(canvas, uid) {
+  const h = micHistory[uid];
+  if (!h || h.rms.length < 2) return;
+  const dpr = devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width, ht = 90;
+  canvas.width = w*dpr; canvas.height = ht*dpr;
+  canvas.style.height = ht+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#0a0a12'; ctx.fillRect(0,0,w,ht);
+
+  const allVals = h.rms;
+  let yMin = 0;
+  let yMax = Math.max(...allVals, 0.02) * 1.2;
+  if (yMax < 0.005) yMax = 0.02;
+  const toY = v => ht - ((v - yMin) / (yMax - yMin)) * (ht - 12) - 6;
+  const toX = i => (i / (MIC_LEN - 1)) * w;
+
+  // Grid
+  ctx.strokeStyle = '#1a1a2a'; ctx.lineWidth = 1;
+  for (let i=0;i<=3;i++){const y=ht*i/3; ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+
+  // RMS line
+  const pts = [];
+  for (let i=0;i<h.rms.length;i++) pts.push({x:toX(i + MIC_LEN - h.rms.length), y:toY(h.rms[i])});
+  ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
+  ctx.beginPath(); catmullRomPath(ctx, pts, 0.25); ctx.stroke();
+  // Fill under
+  ctx.globalAlpha = 0.08; ctx.fillStyle = '#60a5fa';
+  ctx.lineTo(pts[pts.length-1].x, ht); ctx.lineTo(pts[0].x, ht);
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Current value
+  const last = pts[pts.length-1];
+  ctx.beginPath(); ctx.arc(last.x, last.y, 3, 0, Math.PI*2);
+  ctx.fillStyle = '#60a5fa'; ctx.fill();
+  ctx.font = '10px monospace'; ctx.textAlign = 'right'; ctx.fillStyle = '#60a5fa';
+  ctx.fillText(h.rms[h.rms.length-1].toFixed(4), last.x - 8, last.y - 6);
+
+  // Y labels
+  ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+  ctx.fillText(yMax.toFixed(4), w-2, 10);
+  ctx.fillText('0', w-2, ht-2);
+}
+
+// ============================================================
 // Charts area (per-metric, all users overlaid)
 // ============================================================
 const chartMetrics = [
@@ -960,6 +1212,19 @@ function connect(){
     renderTranscriptions(data.transcriptions);
     renderSimStatus(data.summary);
     renderContextEvents(data.context_events||[]);
+    // Real piezo telemetry from hardware collar
+    if (data.piezo) {
+      for (const [uid, pd] of Object.entries(data.piezo)) {
+        pushRealPiezo(uid, pd.rms || 0, pd.baseline || 0, pd.peak || 0);
+      }
+      renderRealPiezoArea(data.piezo);
+    }
+    if (data.mic) {
+      for (const [uid, md] of Object.entries(data.mic)) {
+        pushMic(uid, md.rms || 0);
+      }
+      renderMicArea(data.mic);
+    }
     // Track paused state
     latestSimPaused = data.summary.sim_paused || {};
     updateSignalsButton();
@@ -1007,6 +1272,17 @@ function drawChartsSmooth() {
       sigBtn.style.color = paused === false ? '#4ade80' : '#888';
       sigBtn.style.borderColor = paused === false ? '#4ade80' : '#2a2a3a';
     }
+  }
+
+  // Real piezo charts (hardware ADC)
+  for (const uid of Object.keys(realPiezoHistory)) {
+    const cv = document.getElementById(`real-piezo-${uid}`);
+    if (cv) drawRealPiezoChart(cv, uid);
+  }
+  // Mic charts
+  for (const uid of Object.keys(micHistory)) {
+    const cv = document.getElementById(`mic-${uid}`);
+    if (cv) drawMicChart(cv, uid);
   }
 
   // Timeline also benefits from smooth redraw (events slide left)

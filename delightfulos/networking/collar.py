@@ -43,7 +43,20 @@ async def _process_heartbeat(data: dict, did: str, user_id: str):
         device.metadata["uptime_s"] = data.get("uptime_s")
         device.metadata["free_heap"] = data.get("free_heap")
         device.metadata["piezo_rms"] = data.get("piezo_rms")
+        device.metadata["baseline_rms"] = data.get("baseline_rms")
         device.metadata["speech_active"] = data.get("speech_active")
+
+
+async def _process_piezo_stream(data: dict, did: str, user_id: str):
+    """Update registry with continuous piezo telemetry (5 Hz from firmware)."""
+    device = registry.get(did)
+    if device:
+        device.last_seen = time.time()
+        device.metadata["piezo_rms"] = data.get("rms")
+        device.metadata["baseline_rms"] = data.get("base")
+        device.metadata["piezo_peak"] = data.get("peak")
+        device.metadata["piezo_zcr"] = data.get("zcr")
+        device.metadata["speech_active"] = data.get("speech")
 
 
 async def _process_calibration(data: dict, did: str, user_id: str):
@@ -95,6 +108,10 @@ async def handle_events(ws: WebSocket, user_id: str, device_id: str | None = Non
 
             if msg_type == "calibration":
                 await _process_calibration(data, did, user_id)
+                continue
+
+            if msg_type == "piezo_stream":
+                await _process_piezo_stream(data, did, user_id)
                 continue
 
             # Process events
@@ -194,13 +211,16 @@ async def handle_raw_audio(ws: WebSocket, user_id: str, device_id: str | None = 
                         data.get("pdm_sample_rate", 16000),
                     )
 
-            # Emit signals from piezo (primary for pre-speech)
+            # Emit signals from piezo
             if piezo_result:
-                if piezo_result.pre_speech_detected:
-                    await bus.emit_signal(Signal(
-                        source_device=did, source_user=user_id,
-                        signal_type="about_to_speak", confidence=piezo_result.confidence,
-                    ))
+                # Pre-speech detection disabled for real hardware — the 30%
+                # rising-RMS heuristic fires on swallows, jaw movement, and
+                # head turns. Needs per-user calibration to be reliable.
+                # if piezo_result.pre_speech_detected:
+                #     await bus.emit_signal(Signal(
+                #         source_device=did, source_user=user_id,
+                #         signal_type="about_to_speak", confidence=piezo_result.confidence,
+                #     ))
                 if piezo_result.speech_detected:
                     sig = Signal(
                         source_device=did, source_user=user_id,
@@ -255,6 +275,14 @@ async def handle_raw_audio(ws: WebSocket, user_id: str, device_id: str | None = 
                     confidence=event.get("confidence", 1.0),
                     value=event.get("value", {}),
                 ))
+
+            # Store mic telemetry in device metadata for dashboard
+            device = registry.get(did)
+            if device:
+                device.last_seen = time.time()
+                if pdm_result:
+                    device.metadata["mic_rms"] = pdm_result.features.rms
+                    device.metadata["mic_speech"] = pdm_result.speech_detected
 
             # Build response
             state = estimator.get(user_id)

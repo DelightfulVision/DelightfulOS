@@ -194,7 +194,7 @@ async def list_modes():
 
 @router.websocket("/dashboard/ws")
 async def dashboard_ws(ws: WebSocket):
-    """Live feed of entire OS state for the dashboard UI. Pushes every 500ms."""
+    """Live feed of entire OS state for the dashboard UI. Pushes every 200ms."""
     await ws.accept()
     try:
         while True:
@@ -213,9 +213,33 @@ async def dashboard_ws(ws: WebSocket):
                         "alive": (now - d.last_seen) < 10,
                         "last_seen": round(now - d.last_seen, 1),
                         "wifi_rssi": d.metadata.get("wifi_rssi"),
+                        "piezo_rms": d.metadata.get("piezo_rms"),
+                        "baseline_rms": d.metadata.get("calibration", {}).get("baseline") if d.metadata.get("calibration") else d.metadata.get("baseline_rms"),
+                        "speech_active_hw": d.metadata.get("speech_active"),
                     }
                     for d in devices
                 ],
+                "piezo": {
+                    d.user_id: {
+                        "rms": round(d.metadata.get("piezo_rms", 0), 6),
+                        "baseline": round((d.metadata.get("calibration", {}) or {}).get("baseline", 0) or d.metadata.get("baseline_rms", 0) or 0, 6),
+                        "peak": round(d.metadata.get("piezo_peak", 0) or 0, 6),
+                        "zcr": round(d.metadata.get("piezo_zcr", 0) or 0, 4),
+                        "speech_active": d.metadata.get("speech_active", False),
+                        "device_id": d.device_id,
+                    }
+                    for d in devices
+                    if d.metadata.get("piezo_rms") is not None
+                },
+                "mic": {
+                    d.user_id: {
+                        "rms": round(d.metadata.get("mic_rms", 0) or 0, 6),
+                        "speech": d.metadata.get("mic_speech", False),
+                        "device_id": d.device_id,
+                    }
+                    for d in devices
+                    if d.metadata.get("mic_rms") is not None
+                },
                 "users": [s.to_dict() for s in states],
                 "recent_signals": [
                     {
@@ -254,7 +278,7 @@ async def dashboard_ws(ws: WebSocket):
             }
 
             await ws.send_text(json.dumps(frame))
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
     except WebSocketDisconnect:
         pass
     except Exception:
@@ -336,8 +360,13 @@ async def demo_stop():
 
 
 @router.post("/demo/tap/{user_id}")
-async def demo_tap(user_id: str, tapper_id: str | None = None):
-    """Trigger a collar tap in demo mode. Works for both sim and real devices."""
+async def demo_tap(user_id: str, tapper_id: str | None = None, target_user: str | None = None):
+    """Trigger a collar tap in demo mode. Works for both sim and real devices.
+
+    Query params:
+        tapper_id: who performed the tap (default: user_id)
+        target_user: who the tapper is looking at / targeting (for AR scene)
+    """
     from delightfulos.os.types import Signal
 
     # Try simulator first
@@ -350,6 +379,8 @@ async def demo_tap(user_id: str, tapper_id: str | None = None):
     value = {}
     if tapper_id:
         value["tapper_id"] = tapper_id
+    if target_user:
+        value["target_user"] = target_user
     await bus.emit_signal(Signal(
         source_device=device_id,
         source_user=user_id,
@@ -357,7 +388,7 @@ async def demo_tap(user_id: str, tapper_id: str | None = None):
         confidence=1.0,
         value=value,
     ))
-    return {"status": "tapped", "user_id": user_id, "source": "direct"}
+    return {"status": "tapped", "user_id": user_id, "target_user": target_user, "source": "direct"}
 
 
 @router.post("/demo/signals/{user_id}/{state}")
