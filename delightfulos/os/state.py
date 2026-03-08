@@ -105,14 +105,17 @@ class StateEstimator:
         t = signal.signal_type
         c = signal.confidence
 
-        # Mode toggle via touch (double-tap cycles modes)
+        # Mode change — valid OS modes update state, platform-specific
+        # values (e.g. Spectacles "spectacles_leader"/"pc_leader") are
+        # stored as metadata but don't change the OS mode.
         if t == "mode_change":
             mode_str = signal.value.get("mode", "social")
             try:
                 state.mode = UserMode(mode_str)
                 log.info("Mode change via signal: %s -> %s", signal.source_user, mode_str)
             except ValueError:
-                log.warning("Invalid mode in signal: %s", mode_str)
+                log.debug("Platform mode (not an OS mode): %s from %s",
+                          mode_str, signal.source_user)
             return
 
         if t == "about_to_speak":

@@ -4,10 +4,13 @@ Three layers:
   1. Rule-based policies (fast, deterministic, no LLM call)
   2. Turn-taking resolution (who speaks next when multiple users want to)
   3. Mode filtering (suppress actions based on user's current mode)
+
+Plus signal-reactive policies for immediate event-driven responses
+(collar taps, gestures, etc.) that shouldn't wait for the 200ms batch window.
 """
 from __future__ import annotations
 
-from delightfulos.os.types import Action
+from delightfulos.os.types import Signal, Action
 from delightfulos.os.state import BodyState, UserMode
 
 
@@ -161,3 +164,56 @@ def _turn_taking(
                 "reason": "about_to_speak",
             },
         ))
+
+
+# ------------------------------------------------------------------ #
+#  Signal-reactive policies (immediate, not batched)                  #
+# ------------------------------------------------------------------ #
+
+# Signal types that trigger immediate actions
+_REACTIVE_SIGNALS = {"collar_tap"}
+
+
+def evaluate_signal(signal: Signal, all_states: dict[str, BodyState]) -> list[Action]:
+    """Immediate signal-reactive policy evaluation.
+
+    Unlike evaluate_rules() which runs on batched state, this fires per-signal
+    for event-driven interactions (taps, gestures) that need low latency.
+    """
+    if signal.signal_type not in _REACTIVE_SIGNALS:
+        return []
+
+    if signal.signal_type == "collar_tap":
+        return _handle_collar_tap(signal, all_states)
+
+    return []
+
+
+def _handle_collar_tap(signal: Signal, all_states: dict[str, BodyState]) -> list[Action]:
+    """Collar tap: person A's collar was tapped → remove cube over person A
+    on all other users' Spectacles.
+
+    The collar is a physical interface that others can interact with.
+    Tapping someone's collar controls what AR overlays appear over that person.
+    """
+    tapped_user = signal.source_user
+    actions = []
+
+    for other_id, other_state in all_states.items():
+        if other_id == tapped_user:
+            continue
+        if other_state.mode == UserMode.CALIBRATION:
+            continue
+
+        actions.append(Action(
+            target_user=other_id,
+            target_type="glasses",
+            action_type="remove_overlay",
+            payload={
+                "target": tapped_user,
+                "type": "cube",
+                "reason": "collar_tap",
+            },
+        ))
+
+    return actions

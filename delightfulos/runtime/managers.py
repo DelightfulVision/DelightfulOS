@@ -21,7 +21,7 @@ from delightfulos.os.types import Signal, Action
 from delightfulos.os.bus import bus
 from delightfulos.os.state import estimator, UserMode
 from delightfulos.os.registry import registry
-from delightfulos.runtime.policy import evaluate_rules
+from delightfulos.runtime.policy import evaluate_rules, evaluate_signal
 from delightfulos.runtime.output import route_action
 from delightfulos.ai.transcribe import transcriber
 
@@ -317,7 +317,15 @@ class Runtime:
         # Always update state immediately (low cost)
         estimator.update(signal)
 
-        # Add to batch for policy evaluation
+        # Signal-reactive policies fire immediately (no batching)
+        # for low-latency event-driven interactions like collar taps
+        all_states = {s.user_id: s for s in estimator.all_states()}
+        reactive_actions = evaluate_signal(signal, all_states)
+        for action in reactive_actions:
+            await route_action(action)
+            await bus.emit_action(action)
+
+        # Add to batch for state-based policy evaluation
         await self.batcher.add(signal)
 
     async def _on_batch(self, signals: list[Signal]):

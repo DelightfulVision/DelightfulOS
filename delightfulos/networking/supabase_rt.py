@@ -65,6 +65,7 @@ class SupabaseRealtimeBridge:
         self._state_push_task: asyncio.Task | None = None
         self._reconnect_task: asyncio.Task | None = None
         self._shutting_down = False
+        self._subscribed = False  # bus subscription guard (only subscribe once)
         # Track latest cursor positions for each user (for multiplayer state)
         self._cursor_positions: dict[str, dict] = {}
 
@@ -129,12 +130,12 @@ class SupabaseRealtimeBridge:
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         self._state_push_task = asyncio.create_task(self._state_push_loop())
 
-        # Subscribe to OS actions for forwarding
-        bus.subscribe_action(self._on_os_action)
-
-        # Forward Gemini Live transcriptions to Spectacles
-        bus.subscribe_signal(self._on_transcription, signal_type="live_input_transcription")
-        bus.subscribe_signal(self._on_transcription, signal_type="live_output_transcription")
+        # Subscribe to OS actions for forwarding (only once)
+        if not self._subscribed:
+            bus.subscribe_action(self._on_os_action)
+            bus.subscribe_signal(self._on_transcription, signal_type="live_input_transcription")
+            bus.subscribe_signal(self._on_transcription, signal_type="live_output_transcription")
+            self._subscribed = True
 
     async def disconnect(self):
         """Disconnect from Supabase Realtime."""
@@ -344,8 +345,16 @@ class SupabaseRealtimeBridge:
         )
 
     async def _on_os_action(self, action):
-        """Forward OS actions to Spectacles via broadcast."""
+        """Forward OS actions to Spectacles via broadcast.
+
+        Only forwards actions that target glasses/AR — no point sending
+        collar haptic commands to Spectacles.
+        """
         if not self._connected:
+            return
+
+        # Skip actions that target non-glasses devices
+        if action.target_type and action.target_type not in ("glasses", None):
             return
 
         await self.broadcast("os-action", {
