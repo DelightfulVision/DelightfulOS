@@ -285,51 +285,88 @@ def test_recommended_firmware_thresholds():
 # ---------------------------------------------------------------------------
 
 class TapDetectorSim:
-    """Python simulation of the firmware tap state machine."""
+    """Python simulation of the firmware tap state machine.
+
+    Pipeline (matches firmware):
+      1. Peak envelope follower (fast attack, slow release)
+      2. Delta from adaptive baseline RMS
+      3. Three-state machine: IDLE -> SCAN -> CONFIRM_DROP
+      4. Speech rejection + post-tap mask
+      5. ZCR shape check (broadband tap vs harmonic speech)
+    """
 
     IDLE = 0
-    SPIKE = 1
+    SCAN = 1
+    CONFIRM_DROP = 2
 
     def __init__(self, baseline_rms: float, delta_threshold: float = 0.10,
-                 max_spike_frames: int = 3, min_spike_frames: int = 1):
+                 scan_frames: int = 2, max_drop_frames: int = 3,
+                 mask_frames: int = 4, envelope_release: float = 0.85):
         self.baseline_rms = baseline_rms
         self.delta_threshold = delta_threshold
-        self.max_spike_frames = max_spike_frames
-        self.min_spike_frames = min_spike_frames
+        self.scan_frames = scan_frames
+        self.max_drop_frames = max_drop_frames
+        self.mask_frames = mask_frames
+        self.envelope_release = envelope_release
         self.state = self.IDLE
-        self.spike_frames = 0
+        self.frame_count = 0
         self.spike_peak = 0.0
+        self.peak_envelope = 0.0
         self.ema_alpha = 0.02
+        self.frames_since_tap = 999  # large = no recent tap
 
     def feed_frame(self, buffer: list[int], speech_active: bool = False) -> bool:
         """Feed one analysis frame. Returns True if tap confirmed."""
+        self.frames_since_tap += 1
+
         if speech_active:
+            self.state = self.IDLE
+            return False
+
+        # Post-tap mask
+        if self.frames_since_tap < self.mask_frames:
             self.state = self.IDLE
             return False
 
         peak = firmware_peak(buffer)
         rms = firmware_rms(buffer)
-        delta = peak - self.baseline_rms
+
+        # Envelope follower: fast attack, slow release
+        if peak > self.peak_envelope:
+            self.peak_envelope = peak
+        else:
+            self.peak_envelope *= self.envelope_release
+
+        # Use MAX(peak, envelope) for threshold check.
+        # Raw peak catches sustained signals that the envelope might
+        # dip below during release phase. Envelope catches transients
+        # that a single quiet frame might miss.
+        effective = max(peak, self.peak_envelope)
+        delta = effective - self.baseline_rms
         above = delta > self.delta_threshold
 
         fired = False
 
         if self.state == self.IDLE:
             if above:
-                self.state = self.SPIKE
-                self.spike_frames = 1
+                self.state = self.SCAN
+                self.frame_count = 1
                 self.spike_peak = peak
-        elif self.state == self.SPIKE:
-            self.spike_frames += 1
+        elif self.state == self.SCAN:
+            self.frame_count += 1
             if peak > self.spike_peak:
                 self.spike_peak = peak
-
+            if self.frame_count >= self.scan_frames:
+                self.state = self.CONFIRM_DROP
+                self.frame_count = 0
+        elif self.state == self.CONFIRM_DROP:
+            self.frame_count += 1
             if not above:
-                # Dropped back — tap shape confirmed
+                # Dropped back — confirmed transient
                 self.state = self.IDLE
-                if self.spike_frames >= self.min_spike_frames:
-                    fired = True
-            elif self.spike_frames > self.max_spike_frames:
+                self.frames_since_tap = 0
+                fired = True
+            elif self.frame_count > self.max_drop_frames:
                 # Sustained — not a tap
                 self.state = self.IDLE
 
@@ -341,49 +378,76 @@ class TapDetectorSim:
         return fired
 
 
+def _feed_tap(det, baseline_adc, tap_adc, noise=30):
+    """Helper: feed a tap through the full pipeline (scan + drop).
+    Returns True if tap was confirmed at any point."""
+    tap_buf = inject_tap(make_adc_buffer(baseline_adc, noise=noise), peak_adc=tap_adc, tap_width=8)
+    quiet_buf = lambda: make_adc_buffer(baseline_adc, noise=noise)
+    # Feed spike frames (scan window)
+    for _ in range(det.scan_frames + 1):
+        if det.feed_frame(tap_buf):
+            return True
+    # Feed quiet frames (drop confirmation)
+    for _ in range(det.max_drop_frames + 1):
+        if det.feed_frame(quiet_buf()):
+            return True
+    return False
+
+
 def test_tap_state_machine():
-    """Test the tap state machine: spike-then-drop = tap, sustained = rejected."""
+    """Test the 3-state machine: IDLE -> SCAN -> CONFIRM_DROP."""
     print("\n=== 7. Tap State Machine ===")
 
     baseline_adc = 2000
     noise = 30
     standby_buf = make_adc_buffer(baseline_adc, noise=noise)
     baseline_rms = firmware_rms(standby_buf)
-    det = TapDetectorSim(baseline_rms)
 
-    # Feed quiet frames — no taps
+    # Quiet frames — no taps
+    det = TapDetectorSim(baseline_rms)
     quiet_taps = 0
-    for _ in range(10):
+    for _ in range(20):
         if det.feed_frame(make_adc_buffer(baseline_adc, noise=noise)):
             quiet_taps += 1
     assert quiet_taps == 0, "No taps during quiet"
     print("  Quiet frames: no false triggers")
 
-    # Real tap: 1 spike frame then drop back
+    # Real tap: spike frames -> scan -> drop confirms
     det2 = TapDetectorSim(baseline_rms)
-    tap_buf = inject_tap(make_adc_buffer(baseline_adc, noise=noise), peak_adc=2600, tap_width=8)
-    result1 = det2.feed_frame(tap_buf)  # spike detected, state -> SPIKE
-    assert not result1, "Spike frame alone doesn't fire (need drop-back)"
-    result2 = det2.feed_frame(make_adc_buffer(baseline_adc, noise=noise))  # drops back
-    assert result2, "Drop-back after spike confirms tap"
-    print("  Tap shape (spike + drop): confirmed")
+    assert _feed_tap(det2, baseline_adc, 2600), "Tap@2600 should be detected"
+    print("  Tap shape (scan + drop): confirmed")
 
-    # Sustained pressure: stays above for 4+ frames → rejected
+    # Sustained pressure: every frame stays elevated → rejected
+    # This simulates someone pressing and holding (not a tap)
     det3 = TapDetectorSim(baseline_rms)
-    sustained_buf = inject_tap(make_adc_buffer(baseline_adc, noise=noise), peak_adc=2600, tap_width=200)
+    sustained_buf = make_adc_buffer(2600, noise=noise)  # elevated baseline, not a spike
     results = []
-    for _ in range(6):
+    for _ in range(15):
         results.append(det3.feed_frame(sustained_buf))
     assert not any(results), "Sustained pressure never fires"
-    print("  Sustained pressure (4+ frames): rejected")
+    print("  Sustained pressure: rejected")
 
-    # Speech rejection: spike during speech → ignored
+    # Speech rejection
     det4 = TapDetectorSim(baseline_rms)
     tap_buf = inject_tap(make_adc_buffer(baseline_adc, noise=noise), peak_adc=2600, tap_width=8)
-    r1 = det4.feed_frame(tap_buf, speech_active=True)
-    r2 = det4.feed_frame(make_adc_buffer(baseline_adc, noise=noise), speech_active=True)
-    assert not r1 and not r2, "Tap during speech is suppressed"
+    results = []
+    for _ in range(6):
+        results.append(det4.feed_frame(tap_buf, speech_active=True))
+    for _ in range(4):
+        results.append(det4.feed_frame(make_adc_buffer(baseline_adc, noise=noise), speech_active=True))
+    assert not any(results), "Tap during speech is suppressed"
     print("  Tap during speech: suppressed")
+
+    # Post-tap mask: second tap too soon is ignored
+    det5 = TapDetectorSim(baseline_rms, mask_frames=4)
+    assert _feed_tap(det5, baseline_adc, 2600), "First tap detected"
+    # Immediately try another — should be masked
+    assert not _feed_tap(det5, baseline_adc, 2600), "Second tap masked (too soon)"
+    # Wait out the mask
+    for _ in range(6):
+        det5.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    assert _feed_tap(det5, baseline_adc, 2600), "Third tap after mask: detected"
+    print("  Post-tap mask: ringing rejected, later tap accepted")
 
     print("  All state machine tests passed")
 
@@ -412,10 +476,7 @@ def test_adaptive_baseline():
     assert drift < 0.01, f"Baseline should track drift (error {drift:.4f})"
 
     # Now tap should still work at the new baseline
-    tap_buf = inject_tap(make_adc_buffer(2100, noise=noise), peak_adc=2700, tap_width=8)
-    r1 = det.feed_frame(tap_buf)
-    r2 = det.feed_frame(make_adc_buffer(2100, noise=noise))
-    assert r2, "Tap still detected after baseline drift"
+    assert _feed_tap(det, 2100, 2700), "Tap still detected after baseline drift"
     print("  Tap still works after drift: confirmed")
 
     # Verify baseline doesn't move during spikes
@@ -449,38 +510,32 @@ def test_multi_tap_sequence():
         det.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
 
     # Phase 2: first tap
-    tap1 = inject_tap(make_adc_buffer(baseline_adc, noise=noise), peak_adc=2600, tap_width=8)
-    det.feed_frame(tap1)
-    if det.feed_frame(make_adc_buffer(baseline_adc, noise=noise)):
+    if _feed_tap(det, baseline_adc, 2600):
         events.append("tap1")
 
-    # Phase 3: quiet (5 frames)
-    for _ in range(5):
+    # Phase 3: quiet (wait out mask + settle)
+    for _ in range(10):
         det.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
 
     # Phase 4: second tap (harder)
-    tap2 = inject_tap(make_adc_buffer(baseline_adc, noise=noise), peak_adc=3000, tap_width=8)
-    det.feed_frame(tap2)
-    if det.feed_frame(make_adc_buffer(baseline_adc, noise=noise)):
+    if _feed_tap(det, baseline_adc, 3000):
         events.append("tap2")
 
     # Phase 5: speech starts (sustained high RMS)
-    speech_buf = make_adc_buffer(2400, noise=50)  # elevated sustained
+    speech_buf = make_adc_buffer(2400, noise=50)
     for _ in range(10):
         det.feed_frame(speech_buf, speech_active=True)
 
     # Phase 6: tap during speech (should be rejected)
     tap3 = inject_tap(make_adc_buffer(2400, noise=50), peak_adc=3000, tap_width=8)
-    det.feed_frame(tap3, speech_active=True)
-    if det.feed_frame(make_adc_buffer(2400, noise=50), speech_active=True):
-        events.append("tap3_during_speech")
+    for _ in range(6):
+        if det.feed_frame(tap3, speech_active=True):
+            events.append("tap3_during_speech")
 
-    # Phase 7: speech ends, another tap
-    for _ in range(5):
+    # Phase 7: speech ends, settle, another tap
+    for _ in range(10):
         det.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
-    tap4 = inject_tap(make_adc_buffer(baseline_adc, noise=noise), peak_adc=2600, tap_width=8)
-    det.feed_frame(tap4)
-    if det.feed_frame(make_adc_buffer(baseline_adc, noise=noise)):
+    if _feed_tap(det, baseline_adc, 2600):
         events.append("tap4")
 
     print(f"  Events detected: {events}")

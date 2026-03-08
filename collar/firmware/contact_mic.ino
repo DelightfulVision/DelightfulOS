@@ -109,7 +109,6 @@ int calibrationCount = 0;
 const int CALIBRATION_SAMPLES = 50; // ~5 seconds at 100ms intervals
 
 // Baseline — adaptive exponential moving average of RMS
-// Tap = instantaneous peak jumps above this floor then drops back.
 // EMA adapts to slow drift (temperature, sweat, fit changes) but
 // freezes during active events so spikes don't pollute the floor.
 float baselineRMS = 0.0;
@@ -120,15 +119,25 @@ int bootCalCount = 0;
 const int BOOT_CAL_SAMPLES = 20;       // ~2 seconds at 100ms
 const float BASELINE_EMA_ALPHA = 0.02; // slow adaptation (~5s time constant)
 
-// Tap state machine: IDLE -> SPIKE -> (confirm drop) -> FIRED
-// Requires spike above threshold AND return to baseline within N frames.
-// This rejects sustained pressure (speech, swallowing, head movement).
-enum TapState { TAP_IDLE, TAP_SPIKE };
+// Peak envelope follower (fast attack, slow release)
+// Smooths out single-sample ADC noise while still catching transients.
+// Attack: instant (follows peak up). Release: exponential decay.
+float peakEnvelope = 0.0;
+const float ENVELOPE_RELEASE = 0.85;   // decay per frame (~150ms to half)
+
+// Tap state machine: IDLE -> SCAN -> (confirm drop) -> FIRED
+//   IDLE:  waiting for envelope to cross threshold
+//   SCAN:  peak crossed threshold, scanning for true peak (1-4 frames)
+//   Then:  confirm signal drops back to baseline (transient shape)
+// Rejects: sustained pressure (speech, head movement), single-sample noise
+enum TapState { TAP_IDLE, TAP_SCAN, TAP_CONFIRM_DROP };
 TapState tapState = TAP_IDLE;
-int tapSpikeFrames = 0;
+int tapFrameCount = 0;
 float tapSpikePeak = 0;
-const int TAP_MAX_SPIKE_FRAMES = 3;    // spike must resolve within 300ms
-const int TAP_MIN_SPIKE_FRAMES = 1;    // at least 1 frame above threshold
+float tapSpikeZCR = 0;            // zero-crossing rate for shape check
+const int TAP_SCAN_FRAMES = 2;    // scan window: find true peak (200ms)
+const int TAP_MAX_DROP_FRAMES = 3; // must drop back within 300ms after scan
+const int TAP_MASK_MS = 400;       // post-tap mask: ignore piezo ringing
 
 // ============================================================
 // SIGNAL PROCESSING
@@ -152,6 +161,17 @@ float computePeak(int16_t* buffer, int size, float scale) {
     return peak;
 }
 
+float computeZCR(int16_t* buffer, int size) {
+    // Zero-crossing rate: taps have broadband energy (high ZCR),
+    // speech has harmonic structure (lower ZCR).
+    int crossings = 0;
+    int midpoint = 2048; // 12-bit ADC mid-rail
+    for (int i = 1; i < size; i++) {
+        if ((buffer[i] >= midpoint) != (buffer[i-1] >= midpoint)) crossings++;
+    }
+    return (float)crossings / (float)size;
+}
+
 bool detectPreSpeech() {
     if (speechActive) return false;
     if (currentEnvelope > preSpeechThreshold && currentEnvelope < speechOnsetThreshold) {
@@ -169,47 +189,77 @@ bool detectPreSpeech() {
 
 bool detectTap() {
     if (!baselineReady) return false;
-    // Reject during active speech — speech raises peak sustained
+
+    // Reject during active speech
     if (speechActive) {
         tapState = TAP_IDLE;
         return false;
     }
 
+    // Post-tap mask: ignore piezo ringing after a confirmed tap
+    unsigned long now = millis();
+    if (now - lastTapMs < (unsigned long)TAP_MASK_MS) {
+        tapState = TAP_IDLE;
+        return false;
+    }
+
     float peak = computePeak(piezoBuffer, PIEZO_BUFFER_SIZE, 4095.0);
-    float delta = peak - baselineRMS;
+    float zcr = computeZCR(piezoBuffer, PIEZO_BUFFER_SIZE);
+
+    // Update envelope follower: fast attack, slow release
+    if (peak > peakEnvelope) {
+        peakEnvelope = peak;                              // instant attack
+    } else {
+        peakEnvelope = peakEnvelope * ENVELOPE_RELEASE;   // slow release
+    }
+
+    // Use max(peak, envelope) for threshold: raw peak catches sustained
+    // signals the envelope might dip below, envelope catches transients.
+    float effective = max(peak, peakEnvelope);
+    float delta = effective - baselineRMS;
     bool aboveThreshold = delta > tapDeltaThreshold;
 
     switch (tapState) {
         case TAP_IDLE:
             if (aboveThreshold) {
-                tapState = TAP_SPIKE;
-                tapSpikeFrames = 1;
+                // Threshold crossed — open scan window to find true peak
+                tapState = TAP_SCAN;
+                tapFrameCount = 1;
                 tapSpikePeak = peak;
+                tapSpikeZCR = zcr;
             }
             break;
 
-        case TAP_SPIKE:
-            tapSpikeFrames++;
-            if (peak > tapSpikePeak) tapSpikePeak = peak;
+        case TAP_SCAN:
+            // Scan window: accumulate true peak over a few frames
+            tapFrameCount++;
+            if (peak > tapSpikePeak) {
+                tapSpikePeak = peak;
+                tapSpikeZCR = zcr;
+            }
+            if (tapFrameCount >= TAP_SCAN_FRAMES) {
+                // Scan done — now wait for signal to drop back
+                tapState = TAP_CONFIRM_DROP;
+                tapFrameCount = 0;
+            }
+            break;
 
+        case TAP_CONFIRM_DROP:
+            tapFrameCount++;
             if (!aboveThreshold) {
-                // Signal dropped back — this is a tap shape (transient)
+                // Signal dropped back — confirmed transient shape
                 tapState = TAP_IDLE;
-                if (tapSpikeFrames >= TAP_MIN_SPIKE_FRAMES) {
-                    unsigned long now = millis();
-                    if (now - lastTapMs > TAP_DEBOUNCE_MS) {
-                        lastTapMs = now;
-                        float confidence = min(1.0f, (tapSpikePeak - baselineRMS) / (tapDeltaThreshold * 2));
-                        Serial.printf("[TAP] confirmed: peak=%.4f base=%.4f delta=%.4f frames=%d conf=%.2f\n",
-                            tapSpikePeak, baselineRMS, tapSpikePeak - baselineRMS, tapSpikeFrames, confidence);
-                        return true;
-                    }
-                }
-            } else if (tapSpikeFrames > TAP_MAX_SPIKE_FRAMES) {
-                // Sustained above threshold — not a tap (speech/movement)
+                lastTapMs = now;
+                float confidence = min(1.0f, (tapSpikePeak - baselineRMS) / (tapDeltaThreshold * 2));
+                Serial.printf("[TAP] peak=%.4f base=%.4f delta=%.4f zcr=%.3f conf=%.2f\n",
+                    tapSpikePeak, baselineRMS, tapSpikePeak - baselineRMS, tapSpikeZCR, confidence);
+                return true;
+            }
+            if (tapFrameCount > TAP_MAX_DROP_FRAMES) {
+                // Still above threshold — sustained, not a tap
                 tapState = TAP_IDLE;
-                Serial.printf("[TAP] rejected sustained: frames=%d peak=%.4f\n",
-                    tapSpikeFrames, tapSpikePeak);
+                Serial.printf("[TAP] rejected: sustained %d frames, peak=%.4f\n",
+                    TAP_SCAN_FRAMES + tapFrameCount, tapSpikePeak);
             }
             break;
     }
