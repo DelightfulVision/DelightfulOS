@@ -1,0 +1,128 @@
+name: CalmPulse Wrist Companion
+body_site: wrist
+signals:
+- type: eda
+  direction: sense
+  sample_rate_hz: 5
+  resolution_bits: 12
+  power_mw: 0.3
+  component: dual Ag/AgCl dry electrodes printed on flexible PCB
+  notes: Rising skin conductance correlates with autonomic arousal; used to flag early signs of social anxiety.
+- type: ppg
+  direction: sense
+  sample_rate_hz: 100
+  resolution_bits: 16
+  power_mw: 0.6
+  component: green LED + photodiode pair with silicone optical window
+  notes: Heart rate and HRV extracted to detect cardiovascular stress response.
+- type: accelerometer
+  direction: sense
+  sample_rate_hz: 50
+  resolution_bits: 16
+  power_mw: 0.2
+  component: Bosch BMI270 6‑axis IMU
+  notes: Movement data helps differentiate stress‑related tremor from incidental motion and supports breathing‑sync haptic
+    patterns.
+outputs:
+- modality: haptic_vibration
+  directional: true
+  channels: 4
+  power_mw: 30
+  component: Linear Resonant Actuator (LRA) array (2 per side of wrist)
+  notes: Delivers a slow 0.2 s‑inhale / 0.8 s‑exhale rhythm that entrains diaphragmatic breathing and signals calm to nearby
+    group members via synchronized pulse.
+intelligence:
+- affective
+- social
+- perception
+temporal:
+- anticipatory
+- reactive
+- ambient
+electronics:
+  microcontroller: nRF52840
+  mcu_cores: 1
+  mcu_clock_mhz: 64
+  mcu_flash_mb: 1
+  mcu_ram_kb: 256
+  connectivity:
+  - ble
+  - ble_mesh
+  power_source: lipo
+  battery_mah: 300
+  estimated_runtime_hours: 48
+  voltage: 3.3
+  total_power_mw: 120
+  pcb_notes: Flexible 0.125 mm polyimide PCB with copper pour for antenna; electrode traces isolated by silicone overlay;
+    board folded to fit within 12 mm thickness.
+  bom_notes: Medical‑grade silicone strap, off‑the‑shelf LRA actuators, Bosch BMI270 IMU, AMS AS3700 PPG sensor, Nordic nRF52840
+    SoC, 300 mAh Li‑Po cell.
+firmware:
+  framework: micropython
+  language: Python
+  data_protocol: ble_gatt
+  update_rate_hz: 2
+  edge_processing:
+  - raw EDA filtering and baseline estimation
+  - PPG peak detection → heart‑rate calculation
+  - simple stress classifier (EDA + HRV threshold)
+  - haptic breathing pattern generator
+  - local BLE mesh synchronization for group cues
+  server_processing:
+  - personalized stress model training using collected anonymized data
+  - group‑level calm session orchestration
+  - remote firmware statistics and OTA delivery
+  power_modes:
+  - active
+  - light_sleep
+  - deep_sleep
+  ota_update: true
+  notes: Modular codebase separating drivers, signal‑processing pipeline, and interaction logic; encrypted BLE communication;
+    OTA via Nordic SoftDevice.
+interaction:
+  consent_model: opt_in
+  social_dynamics:
+  - group
+  embodiment_principles:
+  - interoception
+  - shared_perception
+  - consent_play
+  - ambient_intelligence
+  social_signals:
+  - rising_stress
+  - group_calm_cue
+  signal_interpretations:
+    eda: Skin conductance increase signals autonomic arousal, commonly linked to anxiety in social contexts.
+    ppg: Heart‑rate variability reduction reflects heightened sympathetic activity, a physiological marker of stress.
+    accelerometer: Subtle tremor and altered movement patterns differentiate stress‑related motion from neutral activity.
+  design_constraints:
+  - skin‑friendly silicone to avoid irritation during continuous wear
+  - sub‑10 mm thickness to remain unobtrusive
+  - BLE encryption for privacy‑first data handling
+  - low‑power sleep states to support multi‑day operation
+  - non‑intrusive haptic intensity calibrated per user
+  notes: Users explicitly opt‑in to physiological monitoring; any group‑level cue can be revoked via a brief wrist tap, embodying
+    mutual consent in shared perception.
+form_factor:
+  form: bracelet
+  weight_grams: 28
+  dimensions_mm:
+  - 200
+  - 20
+  - 12
+  water_resistance: IPX7
+  materials:
+  - silicone
+  - flex PCB
+  - LRA
+  notes: Stretchable silicone strap accommodates wrist circumference 140‑200 mm; battery embedded centrally for balanced weight;
+    LRA actuators positioned on the volar side for tactile perception without visual distraction.
+notes: The wrist offers high nerve density for subtle haptic feedback while remaining socially acceptable in most group settings.
+  EDA captures autonomic arousal linked to anxiety, PPG provides cardiovascular stress signals, and an accelerometer disambiguates
+  movement artifacts and assists breath‑synchrony. A Linear Resonant Actuator array delivers precise, low‑power rhythmic pulses
+  that entrain breathing—a proven calming technique—while remaining audible only to the wearer. Using the Nordic nRF52840
+  with BLE Mesh enables low‑energy, reliable group synchronization without exposing raw biometric data to the public internet.
+  MicroPython offers rapid prototyping and modularity; edge processing keeps latency low and preserves privacy. Consent is
+  front‑loaded (opt‑in), and a simple haptic ‘revoke’ gesture enforces mutual revocation, aligning with embodiment principles
+  of interoception, shared perception, and consent play. The form factor prioritises comfort, waterproofing, and invisibility
+  to respect the body’s own agency.

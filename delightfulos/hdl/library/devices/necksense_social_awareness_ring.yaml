@@ -1,0 +1,131 @@
+name: NeckSense Social Awareness Ring
+body_site: neck
+signals:
+- type: bone_conduction_mic
+  direction: sense
+  sample_rate_hz: 16000
+  resolution_bits: 16
+  power_mw: 1.2
+  component: 2‑element bone conduction microphone array (Knowles BCMA1012EV)
+  notes: Captures speech vibrations through the skull; dual elements provide inter‑aural timing differences for crude direction
+    estimation, forming the auditory surrogate for deaf users.
+- type: accelerometer
+  direction: sense
+  sample_rate_hz: 100
+  resolution_bits: 16
+  power_mw: 0.5
+  component: BMI270 IMU (3‑axis accelerometer + gyroscope)
+  notes: Tracks neck orientation to anchor acoustic beamforming to the user’s head pose, enabling accurate mapping of sound
+    source direction onto tactile actuators.
+outputs:
+- modality: haptic_vibration
+  directional: true
+  channels: 8
+  power_mw: 30
+  component: 8× Linear Resonant Actuator (LRA) array embedded in silicone band
+  notes: Activates the actuator nearest the detected sound source, providing a patterned vibration that encodes speaker direction
+    and salience. Acts as a somatic proxy for spatial audio.
+intelligence:
+- social
+- perception
+- somatic
+temporal:
+- ambient
+- reactive
+electronics:
+  microcontroller: nRF52840
+  mcu_cores: 1
+  mcu_clock_mhz: 64
+  mcu_flash_mb: 1
+  mcu_ram_kb: 256
+  connectivity:
+  - ble
+  - wifi
+  power_source: lipo
+  battery_mah: 350
+  estimated_runtime_hours: 12
+  voltage: 3.3
+  total_power_mw: 200
+  pcb_notes: 4‑layer flex PCB laminated onto the silicone substrate; ground plane optimized for audio‑signal integrity and
+    minimal EMI; component placement follows the neck’s curvature to avoid pressure points.
+  bom_notes: Medical‑grade silicone (stretchable band), 8× LRA modules, 2× bone‑conduction mic elements, BMI270 IMU, nRF52840
+    SoC, 350 mAh Li‑Po cell, 2‑pin JST connector, polyurethane protective coating, magnetic charger interface.
+firmware:
+  framework: arduino
+  language: C
+  data_protocol: ble_gatt
+  update_rate_hz: 50
+  edge_processing:
+  - Audio beamforming and inter‑aural delay analysis for speaker direction estimation
+  - Real‑time haptic pattern synthesis and PWM control
+  - Low‑power sensor gating and sleep state management
+  server_processing:
+  - Optional cloud‑side speech analytics (privacy‑preserving aggregation)
+  - Over‑the‑air firmware updates (OTA)
+  power_modes:
+  - active
+  - sleep
+  - deep_sleep
+  ota_update: true
+  notes: Interrupt‑driven audio ISR runs continuously at 16 kHz. Direction estimation employs cross‑correlation with moving‑average
+    smoothing to keep latency <30 ms. Haptic actuation is DMA‑driven to meet <30 ms latency requirement and to avoid MCU jitter.
+interaction:
+  consent_model: ambient_revocable
+  social_dynamics:
+  - dyadic
+  - group
+  embodiment_principles:
+  - shared_perception
+  - extended_mind
+  - proprioception
+  - somatic_markers
+  - consent_play
+  - ambient_intelligence
+  social_signals:
+  - speech presence
+  - speaker direction
+  - acoustic intensity
+  - detected emotional tone (optional)
+  signal_interpretations:
+    bone_conduction_mic: Provides an auditory surrogate via the somatosensory pathway, letting the user experience spoken
+      communication despite hearing loss.
+    accelerometer: Maintains a stable reference frame of the neck, anchoring acoustic spatial cues to the user’s proprioceptive
+      map.
+  design_constraints:
+  - Weight <80 g for comfortable all‑day wear
+  - No obstruction of airway or restraint of neck mobility
+  - Hypoallergenic silicone ensures skin safety
+  - Active power budget <200 mW to sustain ≥12 h runtime
+  - All processing occurs on‑device to preserve privacy; no raw speech is stored or transmitted
+  - End‑to‑end latency <100 ms between sound detection and haptic onset
+  - User‑adjustable haptic intensity to accommodate differing skin sensitivities
+  notes: 'The interaction layer foregrounds agency: users can mute the ring, calibrate haptic sensitivity, and set privacy
+    modes via a companion app. Directional haptic cues foster a sense of being ''present'' in conversations, supporting social
+    inclusion.'
+form_factor:
+  form: collar_ring
+  weight_grams: 70
+  dimensions_mm:
+  - 150
+  - 30
+  - 12
+  water_resistance: IPX4
+  materials:
+  - medical‑grade silicone
+  - flex PCB
+  - polyurethane protective coating
+  notes: A stretchable silicone collar that encircles the neck just below the jawline. Eight LRA actuators are spaced every
+    45° around the band, and the bone‑conduction mic array sits on the front center for optimal skull coupling. The device
+    attaches via a magnetic connector for quick charging.
+notes: 'A neck‑worn form factor respects both the anatomical high nerve density of the cervical region and the social visibility
+  considerations of a discreet ring. Bone‑conduction microphones bypass the auditory canal, delivering high‑fidelity speech
+  cues through the user''s somatosensory system—crucial for deaf users. Pairing these audio cues with a ring of directed haptics
+  creates a spatial mapping from external sound sources onto internal tactile sensations, leveraging proprioception and somatic
+  markers to translate the umwelt into a felt experience. The nRF52840 provides low‑power Bluetooth while still supporting
+  real‑time audio processing; Zephyr’s modular architecture enables efficient power‑mode switching and OTA updates without
+  compromising latency. Directional haptics use eight LRAs to simulate a compass around the neck, allowing the user to intuit
+  who is speaking and from which side. The system operates continuously (ambient) but only triggers haptic feedback when speech
+  is detected (reactive), ensuring the signal remains salient without fatigue. Consent is built into the design through an
+  ambient‑revocable model: the device constantly monitors but can be muted instantly, and data is never stored beyond transient
+  processing. This embodiment‑first approach extends cognition to the body, turning a passive sense into an active social
+  conduit, while respecting privacy and bodily comfort.'

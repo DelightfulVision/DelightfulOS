@@ -1,0 +1,135 @@
+name: CohereChest Emotional Mirror
+body_site: chest
+signals:
+- type: ecg
+  direction: sense
+  sample_rate_hz: 500
+  resolution_bits: 12
+  power_mw: 0.3
+  component: AD8232 ECG front‑end with 2 Ag/AgCl dry electrodes
+  notes: Direct measurement of cardiac electrical activity provides high‑resolution heart rate variability and coherence for
+    interoceptive assessment.
+- type: strain
+  direction: sense
+  sample_rate_hz: 20
+  resolution_bits: 12
+  power_mw: 0.2
+  component: Flex strain gauge woven into silicone chest band to capture thoracic expansion
+  notes: Chest strain translates respiratory pattern; slower, regular strain cycles indicate parasympathetic dominance and
+    calm.
+outputs:
+- modality: visual_projection
+  directional: false
+  channels: 1
+  power_mw: 500
+  component: RGB pico‑projector module (0.5 W LED, 10° FOV) with diffusing lens
+  notes: Projects abstract light patterns onto nearby surfaces; color hue and oscillation encode the collective emotional
+    coherence of the group.
+- modality: visual_led
+  directional: true
+  channels: 4
+  power_mw: 20
+  component: Ring of 4 diffused RGB LEDs on the front plate of the chest strap
+  notes: Provides personal bio‑feedback via color; wearer sees a faint indicator of their own coherence without disrupting
+    the shared visual field.
+intelligence:
+- perception
+- affective
+- social
+- cognitive
+temporal:
+- ambient
+- reactive
+- anticipatory
+electronics:
+  microcontroller: ESP32-S3
+  mcu_cores: 2
+  mcu_clock_mhz: 240
+  mcu_flash_mb: 8
+  mcu_ram_kb: 512
+  connectivity:
+  - wifi
+  - ble_mesh
+  power_source: lipo
+  battery_mah: 300
+  estimated_runtime_hours: 6
+  voltage: 3.3
+  total_power_mw: 250
+  pcb_notes: Flexible PCB using medical‑grade silicone substrate; analog ECG front‑end isolated from digital domains; EMI
+    shielding around high‑frequency signals; projection driver shares power rail with LEDs.
+  bom_notes: Low‑cost AD8232 ECG module, flex strain gauge, RGB LED ring, pico‑projector module, ESP32‑S3, 300 mAh LiPo battery,
+    silicone strap, titanium‑alloy buckles.
+firmware:
+  framework: esp_idf
+  language: C++
+  data_protocol: websocket_json
+  update_rate_hz: 10
+  edge_processing:
+  - ECG band‑pass filter (0.5‑40 Hz)
+  - Respiration rate detection via strain derivative
+  - Phase‑locked coherence algorithm (RR‑interval & respiration)
+  - Local LED status mapping based on personal coherence
+  server_processing:
+  - Aggregate participant coherence across BLE Mesh
+  - Compute group‑level emotional coherence score
+  - Generate light‑pattern parameters (hue, speed, pulse)
+  - Store session analytics for post‑session reflection
+  power_modes:
+  - active
+  - sleep
+  - deep_sleep
+  ota_update: true
+  notes: 'Modular architecture: sensor driver → signal processing → communication → projection rendering. OTA support enables
+    secure over‑the‑air upgrades.'
+interaction:
+  consent_model: mutual
+  social_dynamics:
+  - group
+  embodiment_principles:
+  - shared_perception
+  - ambient_intelligence
+  - extended_mind
+  - interoception
+  social_signals:
+  - group emotional coherence
+  - average respiration regularity
+  - combined HRV trend
+  signal_interpretations:
+    ecg_coherence: Higher coherence reflects physiological synchrony, calm, and internal alignment; lower coherence indicates
+      stress or mental divergence.
+    respiration_regularity: Stable slower breathing correlates with relaxation and parasympathetic dominance; erratic fast
+      breathing suggests heightened arousal.
+  design_constraints:
+  - Weight limited to <50 g for comfort during long meditation sessions
+  - Skin‑friendly medical‑grade silicone to avoid irritation
+  - Projection intensity capped at ≤200 cd/m² to prevent visual overload
+  - No persistent personal data storage on the device; only abstracted aggregates transmitted
+  - Explicit group consent required before session initiates (mutual model).
+  notes: The device encourages shared emotional awareness while safeguarding individual privacy through real‑time aggregation
+    only.
+form_factor:
+  form: sternum strap
+  weight_grams: 48
+  dimensions_mm:
+  - 120
+  - 25
+  - 12
+  water_resistance: IPX5
+  materials:
+  - medical‑grade silicone
+  - flex PCB
+  - ABS buckle
+  notes: Low‑profile contoured to chest curvature, breathable silicone, quick release buckle. Designed for continuous wear
+    up to 8 hours.
+notes: The chest is chosen because it hosts both cardiac and respiratory activity, providing a dense source of interoceptive
+  signals (ECG and strain) that are directly linked to autonomic regulation and emotional states. ECG coherence is a robust
+  marker of physiological synchrony, while chest strain offers a non‑invasive respiration proxy. Placing the sensor at the
+  sternum maximizes signal quality (proximal to heart and diaphragm) and exploits high nerve density for subtle tactile feedback.
+  Visual projection onto nearby surfaces operates as a shared peripheral display, turning invisible physiological patterns
+  into a collective visual language. The RGB LED ring supplies personal haptic‑like bio‑feedback without breaking the shared
+  visual field. ESP32‑S3 paired with BLE Mesh enables low‑power, peer‑to‑peer aggregation with optional Wi‑Fi for backup connectivity.
+  Ambient operation (continuous monitoring) combined with reactive light updates ensures participants experience an evolving
+  affective atmosphere. Anticipatory processing (predicting group coherence trends) allows the system to prepare gradual transitions
+  in light patterns, supporting smooth guided meditation phases. Mutual consent honors the group’s agency, while minimal local
+  data retention aligns with privacy‑by‑design. The form factor is a thin, breathable sternum strap to disappear into the
+  body’s own intelligence, reinforcing the extended mind concept.
