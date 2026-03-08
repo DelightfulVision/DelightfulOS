@@ -50,6 +50,10 @@ class BodyState:
     interaction_ready: bool = False
     overloaded: bool = False
 
+    # Overlay visibility: tracks which users' cubes are hidden for this viewer.
+    # Key = target user_id whose cube is hidden. Toggled by collar_tap.
+    hidden_overlays: set[str] = field(default_factory=set)
+
     # Metadata
     last_updated: float = field(default_factory=time.time)
     signal_count: int = 0
@@ -69,6 +73,7 @@ class BodyState:
             "breathing_phase": self.breathing_phase,
             "interaction_ready": self.interaction_ready,
             "overloaded": self.overloaded,
+            "hidden_overlays": sorted(self.hidden_overlays),
             "last_updated": self.last_updated,
             "signal_count": self.signal_count,
         }

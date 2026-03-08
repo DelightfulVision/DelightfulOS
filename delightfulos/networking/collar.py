@@ -103,6 +103,12 @@ async def handle_events(ws: WebSocket, user_id: str, device_id: str | None = Non
                 if not event_type:
                     log.warning("Event missing 'type' from %s: %s", did, event)
                     continue
+
+                # Normalize: ESP32 firmware sends "touch" for tap events.
+                # Map to "collar_tap" so the reactive policy fires.
+                if event_type == "touch":
+                    event_type = "collar_tap"
+
                 await bus.emit_signal(Signal(
                     source_device=did,
                     source_user=user_id,
@@ -240,6 +246,9 @@ async def handle_raw_audio(ws: WebSocket, user_id: str, device_id: str | None = 
                 event_type = event.get("type")
                 if not event_type:
                     continue
+                # Normalize: firmware sends "touch" for taps
+                if event_type == "touch":
+                    event_type = "collar_tap"
                 await bus.emit_signal(Signal(
                     source_device=did, source_user=user_id,
                     signal_type=event_type,

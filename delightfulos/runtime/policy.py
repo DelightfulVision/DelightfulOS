@@ -190,13 +190,19 @@ def evaluate_signal(signal: Signal, all_states: dict[str, BodyState]) -> list[Ac
 
 
 def _handle_collar_tap(signal: Signal, all_states: dict[str, BodyState]) -> list[Action]:
-    """Collar tap: person A's collar was tapped → remove cube over person A
-    on all other users' Spectacles.
+    """Collar tap: toggles AR overlay visibility over the tapped person.
 
     The collar is a physical interface that others can interact with.
     Tapping someone's collar controls what AR overlays appear over that person.
+
+    On first tap: cube over tapped_user is HIDDEN for all other viewers.
+    On second tap: cube is SHOWN again (toggle).
+
+    The signal value may include tapper_id (who physically did the tap).
+    Broadcast payload includes: tapped_user, tapper_id, enabled (0/1).
     """
     tapped_user = signal.source_user
+    tapper_id = signal.value.get("tapper_id")
     actions = []
 
     for other_id, other_state in all_states.items():
@@ -205,13 +211,25 @@ def _handle_collar_tap(signal: Signal, all_states: dict[str, BodyState]) -> list
         if other_state.mode == UserMode.CALIBRATION:
             continue
 
+        # Toggle: if currently hidden -> show (enable=1), else hide (enable=0)
+        if tapped_user in other_state.hidden_overlays:
+            other_state.hidden_overlays.discard(tapped_user)
+            enabled = 1
+            action_type = "show_overlay"
+        else:
+            other_state.hidden_overlays.add(tapped_user)
+            enabled = 0
+            action_type = "remove_overlay"
+
         actions.append(Action(
             target_user=other_id,
             target_type="glasses",
-            action_type="remove_overlay",
+            action_type=action_type,
             payload={
                 "target": tapped_user,
+                "tapper_id": tapper_id or "unknown",
                 "type": "cube",
+                "enabled": enabled,
                 "reason": "collar_tap",
             },
         ))

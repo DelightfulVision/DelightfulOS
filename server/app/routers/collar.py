@@ -2,6 +2,7 @@
 import time
 
 from fastapi import APIRouter, HTTPException, WebSocket
+from pydantic import BaseModel
 
 from delightfulos.networking.collar import handle_events, handle_raw_audio
 from delightfulos.networking.simulator import tap_collar
@@ -10,6 +11,10 @@ from delightfulos.os.registry import registry
 from delightfulos.os.types import Signal, DeviceType
 
 router = APIRouter(prefix="/collar", tags=["collar"])
+
+
+class TapRequest(BaseModel):
+    tapper_id: str | None = None
 
 
 @router.websocket("/ws/{user_id}")
@@ -69,26 +74,36 @@ async def trigger_calibration(user_id: str):
 
 
 @router.post("/tap/{user_id}")
-async def collar_tap(user_id: str):
+async def collar_tap(user_id: str, body: TapRequest | None = None):
     """Trigger a collar tap event for a user.
 
     Works for both real collars (emits signal directly) and simulators.
-    This is the endpoint the Raspberry Pi / ESP32 calls when someone
-    physically taps a collar, or can be called from the dashboard for demos.
+    This is the endpoint the Raspberry Pi calls when someone physically
+    taps a collar, or can be called from the dashboard for demos.
+
+    Body (optional):
+        tapper_id: who performed the tap (another user's ID)
     """
+    tapper_id = body.tapper_id if body else None
+
     # Try simulator first
     if await tap_collar(user_id):
-        return {"status": "tapped", "user_id": user_id, "source": "simulator"}
+        return {"status": "tapped", "user_id": user_id, "tapper_id": tapper_id, "source": "simulator"}
 
     # For real collars, emit the signal directly
     devices = registry.get_user_devices(user_id)
     collar = next((d for d in devices if d.device_type in (DeviceType.COLLAR, DeviceType.SIMULATOR)), None)
     device_id = collar.device_id if collar else f"collar_{user_id}"
 
+    value = {}
+    if tapper_id:
+        value["tapper_id"] = tapper_id
+
     await bus.emit_signal(Signal(
         source_device=device_id,
         source_user=user_id,
         signal_type="collar_tap",
         confidence=1.0,
+        value=value,
     ))
-    return {"status": "tapped", "user_id": user_id, "source": "direct"}
+    return {"status": "tapped", "user_id": user_id, "tapper_id": tapper_id, "source": "direct"}

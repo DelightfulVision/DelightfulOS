@@ -331,8 +331,15 @@ def test_collar_tap_policy():
     assert action.action_type == "remove_overlay"
     assert action.payload["target"] == "alice"
     assert action.payload["type"] == "cube"
+    assert action.payload["enabled"] == 0, "First tap should disable (enabled=0)"
     assert action.payload["reason"] == "collar_tap"
     assert action.target_type == "glasses"
+
+    # Second tap on alice -> should toggle back to show_overlay
+    actions2 = evaluate_signal(tap_signal, states)
+    assert len(actions2) == 1
+    assert actions2[0].action_type == "show_overlay"
+    assert actions2[0].payload["enabled"] == 1, "Second tap should re-enable (enabled=1)"
 
     # With 3 users: tap on alice -> actions for bob AND charlie
     charlie = estimator.get("charlie")
