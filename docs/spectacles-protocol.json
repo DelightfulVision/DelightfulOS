@@ -1,0 +1,303 @@
+{
+  "_doc": "DelightfulOS XR Protocol v1 — Universal protocol for all XR devices",
+  "_ws_endpoint": "ws://<server>/system/xr/ws/{user_id}",
+  "_legacy_endpoint": "ws://<server>/system/glasses/ws/{user_id}",
+  "_note": "Both endpoints use the same protocol. The /xr/ endpoint is preferred.",
+
+  "handshake": {
+    "description": "First message from client. Declares platform and capabilities.",
+    "example": {
+      "v": 1,
+      "type": "hello",
+      "user_id": "alice",
+      "ts": 1709856000.0,
+      "payload": {
+        "platform": "spectacles",
+        "capabilities": [
+          "hand_tracking", "head_tracking", "depth_sensing",
+          "ar_overlay", "spatial_audio", "voice_input",
+          "co_location", "shared_anchor"
+        ],
+        "metadata": {
+          "sdk": "lens_studio",
+          "sync_kit": true,
+          "interaction_kit": true
+        }
+      }
+    },
+    "server_response": {
+      "v": 1,
+      "type": "state_update",
+      "payload": {
+        "protocol_version": 1,
+        "session_id": "xr_alice_12345",
+        "state": { "user_id": "alice", "mode": "social", "..." : "..." }
+      }
+    }
+  },
+
+  "client_to_server": {
+    "scene_update": {
+      "description": "Full scene state snapshot from the XR device.",
+      "frequency": "Every 500ms-1s during active scene",
+      "example": {
+        "v": 1,
+        "type": "scene_update",
+        "user_id": "alice",
+        "ts": 1709856001.5,
+        "payload": {
+          "tracked_users": [
+            {
+              "user_id": "bob",
+              "world_position": [1.2, 0.0, -2.5],
+              "distance": 2.8,
+              "is_speaking": false,
+              "face_visible": true
+            }
+          ],
+          "hands": [
+            {
+              "side": "right",
+              "tracked": true,
+              "palm_position": [0.3, -0.1, -0.5],
+              "palm_normal": [0.0, 1.0, 0.0],
+              "index_tip": [0.35, -0.05, -0.55],
+              "thumb_tip": [0.28, -0.08, -0.48],
+              "pinching": false,
+              "pinch_strength": 0.0,
+              "grip_strength": 0.0
+            }
+          ],
+          "gaze": {
+            "head_pose": {
+              "position": [0.0, 1.7, 0.0],
+              "rotation": [0.0, 0.0, 0.0, 1.0]
+            },
+            "gaze_direction": [0.3, -0.1, -0.9],
+            "gaze_target_user": "bob",
+            "gaze_confidence": 0.85
+          },
+          "ambient_light": "indoor_bright"
+        }
+      }
+    },
+    "gesture": {
+      "description": "Hand gesture recognized by the XR device.",
+      "example": {
+        "v": 1,
+        "type": "gesture",
+        "user_id": "alice",
+        "ts": 1709856002.0,
+        "payload": {
+          "gesture_type": "nod",
+          "confidence": 0.85,
+          "hand": "right"
+        }
+      }
+    },
+    "pinch": {
+      "description": "Pinch start/end event from hand tracking.",
+      "example": {
+        "v": 1,
+        "type": "pinch",
+        "user_id": "alice",
+        "ts": 1709856002.5,
+        "payload": {
+          "hand": "right",
+          "state": "start",
+          "position": [0.3, -0.1, -0.5]
+        }
+      }
+    },
+    "gaze_shift": {
+      "description": "User's gaze target changed significantly.",
+      "example": {
+        "v": 1,
+        "type": "gaze_shift",
+        "user_id": "alice",
+        "ts": 1709856003.0,
+        "payload": {
+          "direction": "left",
+          "target_user": "bob",
+          "confidence": 0.9
+        }
+      }
+    },
+    "voice_command": {
+      "description": "ASR transcript from on-device speech recognition.",
+      "example": {
+        "v": 1,
+        "type": "voice_command",
+        "user_id": "alice",
+        "ts": 1709856004.0,
+        "payload": {
+          "text": "switch to focus mode",
+          "confidence": 0.92,
+          "is_final": true
+        }
+      }
+    },
+    "heartbeat": {
+      "description": "Keep-alive. Send every 5 seconds.",
+      "example": {
+        "v": 1,
+        "type": "heartbeat",
+        "user_id": "alice",
+        "ts": 1709856010.0,
+        "payload": {}
+      }
+    }
+  },
+
+  "server_to_client": {
+    "show_overlay": {
+      "description": "Create or update a visual overlay in the XR scene.",
+      "example": {
+        "v": 1,
+        "type": "show_overlay",
+        "payload": {
+          "overlay_id": "speaker_highlight_bob",
+          "anchor": "user",
+          "anchor_target": "bob",
+          "position_offset": [0.0, 0.3, 0.0],
+          "overlay_type": "halo",
+          "color": [255, 215, 0],
+          "intensity": 0.9,
+          "duration_ms": 0,
+          "fade_in_ms": 200
+        }
+      }
+    },
+    "remove_overlay": {
+      "description": "Remove a specific overlay by ID.",
+      "example": {
+        "v": 1,
+        "type": "remove_overlay",
+        "payload": {
+          "overlay_id": "speaker_highlight_bob"
+        }
+      }
+    },
+    "clear_overlays": {
+      "description": "Remove all overlays. Used on mode switch.",
+      "example": {
+        "v": 1,
+        "type": "clear_overlays",
+        "payload": {}
+      }
+    },
+    "highlight_user": {
+      "description": "Shorthand to highlight a tracked user (creates halo overlay).",
+      "example": {
+        "v": 1,
+        "type": "highlight_user",
+        "payload": {
+          "user_id": "bob",
+          "color": [255, 215, 0],
+          "label": "Bob is about to speak",
+          "intensity": 0.9
+        }
+      }
+    },
+    "toast": {
+      "description": "Brief head-locked text notification.",
+      "example": {
+        "v": 1,
+        "type": "toast",
+        "payload": {
+          "text": "Take a breath",
+          "color": [248, 113, 113],
+          "duration_ms": 3000
+        }
+      }
+    },
+    "social_cue": {
+      "description": "Contextual cue anchored near a tracked user.",
+      "example": {
+        "v": 1,
+        "type": "social_cue",
+        "payload": {
+          "target_user": "bob",
+          "message": "Bob wants to share something",
+          "icon": "speech_bubble",
+          "duration_ms": 3000
+        }
+      }
+    },
+    "haptic": {
+      "description": "Trigger device haptic (if supported).",
+      "example": {
+        "v": 1,
+        "type": "haptic",
+        "payload": {
+          "pattern": "double_tap",
+          "intensity": 0.5
+        }
+      }
+    },
+    "mode_change": {
+      "description": "Notify client that user's OS mode changed.",
+      "example": {
+        "v": 1,
+        "type": "mode_change",
+        "payload": {
+          "mode": "focus",
+          "previous_mode": "social"
+        }
+      }
+    },
+    "state_update": {
+      "description": "Push updated body state to the client.",
+      "example": {
+        "v": 1,
+        "type": "state_update",
+        "payload": {
+          "state": {
+            "user_id": "alice",
+            "mode": "social",
+            "speech_intent": 0.3,
+            "stress_level": 0.1,
+            "engagement": 0.8
+          }
+        }
+      }
+    }
+  },
+
+  "platforms": {
+    "spectacles": {
+      "description": "Snap Spectacles via Lens Studio",
+      "capabilities": ["hand_tracking", "head_tracking", "depth_sensing", "ar_overlay", "spatial_audio", "voice_input", "co_location", "shared_anchor"],
+      "notes": "Uses Connected Lenses for multi-user. Interaction Kit for hand tracking. No eye tracking."
+    },
+    "quest": {
+      "description": "Meta Quest 2/3/Pro via Unity or Godot",
+      "capabilities": ["hand_tracking", "eye_tracking", "head_tracking", "spatial_mesh", "depth_sensing", "ar_overlay", "spatial_audio", "haptic_output", "passthrough", "controller_input"],
+      "notes": "Future. Uses Meta XR SDK. Passthrough MR mode for co-located AR."
+    },
+    "vision_pro": {
+      "description": "Apple Vision Pro via RealityKit",
+      "capabilities": ["hand_tracking", "eye_tracking", "head_tracking", "spatial_mesh", "ar_overlay", "spatial_audio"],
+      "notes": "Future. Uses ARKit + RealityKit. Best eye tracking."
+    },
+    "webxr": {
+      "description": "Browser-based WebXR",
+      "capabilities": ["head_tracking", "ar_overlay", "controller_input"],
+      "notes": "Future. Lowest common denominator. Good for quick demos."
+    }
+  },
+
+  "field_reference": {
+    "v": "Protocol version (integer). Currently 1.",
+    "type": "Message type string (see XRInputType / XROutputType enums).",
+    "ts": "Unix timestamp (float). Seconds since epoch.",
+    "user_id": "String user identifier.",
+    "color": "RGB array [r, g, b], 0-255.",
+    "intensity": "Float 0.0-1.0.",
+    "duration_ms": "Auto-dismiss after N milliseconds. 0 = persistent.",
+    "overlay_type": "One of: text, icon, halo, arrow, badge.",
+    "anchor": "One of: world, user, head, hand.",
+    "icon": "One of: speech_bubble, exclamation, heart, star, arrow_up, arrow_down.",
+    "pattern": "Haptic pattern. One of: single_tap, double_tap, long_pulse, gentle_wave."
+  }
+}
