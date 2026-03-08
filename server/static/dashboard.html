@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DelightfulOS Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 { color: #FFD700; font-size: 1.4em; margin-bottom: 4px; }
+  .subtitle { color: #888; font-size: 0.85em; margin-bottom: 20px; }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; }
+  .status.connected { background: #1a3a1a; color: #4ade80; }
+  .status.disconnected { background: #3a1a1a; color: #f87171; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: #12121a;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card h2 { color: #FFD700; font-size: 1.0em; margin-bottom: 12px; border-bottom: 1px solid #2a2a3a; padding-bottom: 6px; }
+
+  .summary-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stat {
+    background: #12121a;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 12px 20px;
+    text-align: center;
+    min-width: 120px;
+  }
+  .stat .num { font-size: 2em; font-weight: bold; color: #FFD700; }
+  .stat .label { font-size: 0.75em; color: #888; margin-top: 2px; }
+
+  .user-card {
+    background: #1a1a24;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+  .user-name { font-weight: bold; font-size: 1.1em; }
+  .user-mode { font-size: 0.75em; padding: 2px 6px; border-radius: 3px; background: #2a2a3a; margin-left: 8px; }
+  .meter-row { display: flex; align-items: center; margin-top: 6px; gap: 8px; }
+  .meter-label { width: 100px; font-size: 0.8em; color: #aaa; text-align: right; }
+  .meter-bar { flex: 1; height: 8px; background: #2a2a3a; border-radius: 4px; overflow: hidden; }
+  .meter-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+  .meter-val { width: 40px; font-size: 0.8em; color: #aaa; }
+
+  .device-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1a1a24; }
+  .device-row:last-child { border-bottom: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.alive { background: #4ade80; }
+  .dot.dead { background: #f87171; }
+
+  .signal-row { font-size: 0.85em; padding: 3px 0; border-bottom: 1px solid #1a1a24; display: flex; gap: 8px; }
+  .signal-row:last-child { border-bottom: none; }
+  .signal-type { color: #60a5fa; min-width: 140px; }
+  .signal-user { color: #a78bfa; min-width: 60px; }
+  .signal-conf { color: #888; min-width: 40px; text-align: right; }
+  .signal-age { color: #555; min-width: 50px; text-align: right; }
+
+  .transcript-row { padding: 6px 0; border-bottom: 1px solid #1a1a24; display: flex; gap: 8px; align-items: baseline; }
+  .transcript-row:last-child { border-bottom: none; }
+  .transcript-user { color: #a78bfa; min-width: 60px; font-size: 0.85em; }
+  .transcript-text { color: #e0e0e0; flex: 1; font-size: 0.9em; }
+  .transcript-meta { color: #555; font-size: 0.75em; min-width: 80px; text-align: right; }
+
+  .badge-speaking { color: #4ade80; }
+  .badge-intent { color: #FFD700; }
+  .badge-stressed { color: #f87171; }
+  .badge-overloaded { color: #ef4444; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>DelightfulOS</h1>
+<div class="subtitle">
+  Distributed Wearable OS &mdash; Live Dashboard
+  <span id="conn-status" class="status disconnected">connecting...</span>
+</div>
+
+<div class="summary-row" id="summary"></div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Users</h2>
+    <div id="users">No users yet</div>
+  </div>
+  <div class="card">
+    <h2>Devices</h2>
+    <div id="devices">No devices</div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Transcriptions</h2>
+    <div id="transcriptions">No transcriptions yet</div>
+  </div>
+  <div class="card">
+    <h2>Signal Feed</h2>
+    <div id="signals">Waiting for signals...</div>
+  </div>
+</div>
+
+<script>
+const WS_URL = `ws://${location.host}/system/dashboard/ws`;
+let ws;
+let reconnectTimer;
+
+// HTML-escape to prevent XSS from device IDs, transcription text, etc.
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById('conn-status').textContent = 'live';
+    document.getElementById('conn-status').className = 'status connected';
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-status').textContent = 'disconnected';
+    document.getElementById('conn-status').className = 'status disconnected';
+    reconnectTimer = setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (evt) => {
+    const data = JSON.parse(evt.data);
+    renderSummary(data.summary);
+    renderUsers(data.users);
+    renderDevices(data.devices);
+    renderSignals(data.recent_signals);
+    renderTranscriptions(data.transcriptions);
+  };
+}
+
+function renderSummary(s) {
+  document.getElementById('summary').innerHTML = `
+    <div class="stat"><div class="num">${s.total_devices}</div><div class="label">Devices</div></div>
+    <div class="stat"><div class="num">${s.total_users}</div><div class="label">Users</div></div>
+    <div class="stat"><div class="num">${s.active_speakers}</div><div class="label">Speaking</div></div>
+    <div class="stat"><div class="num">${s.about_to_speak}</div><div class="label">About to Speak</div></div>
+    <div class="stat"><div class="num">${s.stressed}</div><div class="label">Stressed</div></div>
+    <div class="stat"><div class="num">${s.overloaded}</div><div class="label">Overloaded</div></div>
+  `;
+}
+
+function meterColor(val, type) {
+  if (type === 'stress') return val > 0.6 ? '#f87171' : val > 0.3 ? '#fbbf24' : '#4ade80';
+  if (type === 'intent') return val > 0.7 ? '#FFD700' : val > 0.3 ? '#fbbf24' : '#555';
+  if (type === 'engagement') return val > 0.6 ? '#4ade80' : val > 0.3 ? '#fbbf24' : '#f87171';
+  return '#60a5fa';
+}
+
+function meter(label, val, type) {
+  const pct = Math.round(val * 100);
+  const color = meterColor(val, type);
+  return `<div class="meter-row">
+    <div class="meter-label">${esc(label)}</div>
+    <div class="meter-bar"><div class="meter-fill" style="width:${pct}%;background:${color}"></div></div>
+    <div class="meter-val">${pct}%</div>
+  </div>`;
+}
+
+function renderUsers(users) {
+  if (!users.length) { document.getElementById('users').innerHTML = 'No users yet'; return; }
+  document.getElementById('users').innerHTML = users.map(u => {
+    let badges = '';
+    if (u.speech_active) badges += ' <span class="badge-speaking">[SPEAKING]</span>';
+    else if (u.speech_intent > 0.7) badges += ' <span class="badge-intent">[ABOUT TO SPEAK]</span>';
+    if (u.overloaded) badges += ' <span class="badge-overloaded">[OVERLOADED]</span>';
+    else if (u.stress_level > 0.6) badges += ' <span class="badge-stressed">[STRESSED]</span>';
+
+    return `<div class="user-card">
+      <div><span class="user-name">${esc(u.user_id)}</span><span class="user-mode">${esc(u.mode)}</span>${badges}</div>
+      ${meter('Speech', u.speech_intent, 'intent')}
+      ${meter('Stress', u.stress_level, 'stress')}
+      ${meter('Engagement', u.engagement, 'engagement')}
+      ${meter('Arousal', u.arousal, 'arousal')}
+      <div class="meter-row">
+        <div class="meter-label">Attention</div>
+        <div style="flex:1;font-size:0.85em;color:#aaa">${esc(u.attention_direction)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderDevices(devs) {
+  if (!devs.length) { document.getElementById('devices').innerHTML = 'No devices'; return; }
+  document.getElementById('devices').innerHTML = devs.map(d => `
+    <div class="device-row">
+      <div class="dot ${d.alive ? 'alive' : 'dead'}"></div>
+      <div style="flex:1">
+        <strong>${esc(d.device_id)}</strong>
+        <span style="color:#888;font-size:0.85em"> (${esc(d.device_type)}, ${esc(d.user_id)})</span>
+      </div>
+      <div style="font-size:0.8em;color:#888">
+        ${d.wifi_rssi ? esc(d.wifi_rssi) + ' dBm' : ''}
+        ${d.last_seen}s ago
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderTranscriptions(txns) {
+  if (!txns || !txns.length) { document.getElementById('transcriptions').innerHTML = 'No transcriptions yet'; return; }
+  document.getElementById('transcriptions').innerHTML = txns.map(t => `
+    <div class="transcript-row">
+      <div class="transcript-user">${esc(t.source_user)}</div>
+      <div class="transcript-text">${esc(t.text)}</div>
+      <div class="transcript-meta">${t.latency}s &middot; ${t.age}s ago</div>
+    </div>
+  `).reverse().join('');
+}
+
+function renderSignals(sigs) {
+  if (!sigs.length) { document.getElementById('signals').innerHTML = 'Waiting for signals...'; return; }
+  document.getElementById('signals').innerHTML = sigs.map(s => `
+    <div class="signal-row">
+      <div class="signal-user">${esc(s.source_user)}</div>
+      <div class="signal-type">${esc(s.signal_type)}</div>
+      <div class="signal-conf">${(s.confidence * 100).toFixed(0)}%</div>
+      <div class="signal-age">${s.age}s</div>
+    </div>
+  `).reverse().join('');
+}
+
+connect();
+</script>
+</body>
+</html>
