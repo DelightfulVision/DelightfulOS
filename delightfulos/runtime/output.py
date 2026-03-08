@@ -72,5 +72,10 @@ async def _send(transport, action: Action):
             "timestamp": action.timestamp,
         }))
     except Exception:
-        log.warning("Failed to send action '%s' to user '%s' — transport broken",
+        log.warning("Failed to send action '%s' to user '%s' — transport broken, removing device",
                     action.action_type, action.target_user)
+        # Find and unregister the device with this broken transport
+        for device in registry.all_devices():
+            if device.transport is transport:
+                registry.unregister(device.device_id)
+                break

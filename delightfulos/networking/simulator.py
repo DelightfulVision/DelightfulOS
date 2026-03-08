@@ -2,6 +2,10 @@
 
 Generates realistic synthetic signals so the full pipeline can be tested
 without any physical hardware connected.
+
+Supports a "paused" mode where the device stays registered but no signals
+are emitted — useful for testing with a clean/quiet baseline that you
+manually disturb (e.g. with tap events).
 """
 from __future__ import annotations
 
@@ -19,12 +23,33 @@ log = logging.getLogger("delightfulos.simulator")
 
 class CollarSimulator:
 
-    def __init__(self, user_id: str):
+    def __init__(self, user_id: str, paused: bool = True):
         self.user_id = user_id
         self.device_id = f"sim_collar_{user_id}"
         self._running = False
+        self._paused = paused  # when True, no auto-signals (clean baseline)
         self._task: asyncio.Task | None = None
         self._time = 0.0
+
+    @property
+    def paused(self) -> bool:
+        return self._paused
+
+    def set_paused(self, paused: bool):
+        self._paused = paused
+        if paused:
+            # Reset user state to clean baseline so values don't freeze
+            from delightfulos.os.state import estimator, BodyState
+            state = estimator.get(self.user_id)
+            state.speech_intent = 0.0
+            state.speech_active = False
+            state.stress_level = 0.0
+            state.arousal = 0.5
+            state.engagement = 0.5
+            state.interaction_ready = False
+            state.overloaded = False
+            state.breathing_phase = "unknown"
+        log.info("Simulator %s: signals %s", self.user_id, "paused" if paused else "resumed")
 
     async def start(self):
         registry.register(DeviceInfo(
@@ -36,11 +61,11 @@ class CollarSimulator:
                 Capability.SENSE_AUDIO,
                 Capability.OUTPUT_HAPTIC,
             ],
-            metadata={"simulated": True},
+            metadata={"simulated": True, "paused": self._paused},
         ))
         self._running = True
         self._task = asyncio.create_task(self._run())
-        log.info("Simulator started for %s (%s)", self.user_id, self.device_id)
+        log.info("Simulator started for %s (%s) paused=%s", self.user_id, self.device_id, self._paused)
 
     async def stop(self):
         self._running = False
@@ -57,6 +82,13 @@ class CollarSimulator:
     async def _run(self):
         while self._running:
             self._time += 0.2
+
+            # Keep device alive even when paused
+            registry.touch(self.device_id)
+
+            if self._paused:
+                await asyncio.sleep(0.2)
+                continue
 
             cycle = math.sin(self._time * 0.3)
 
@@ -108,7 +140,7 @@ class CollarSimulator:
             await asyncio.sleep(0.2)
 
     async def tap(self):
-        """Simulate a collar tap event (as if another person tapped this collar)."""
+        """Simulate a collar tap event (works even when paused)."""
         if not self._running:
             return
         await bus.emit_signal(Signal(
@@ -124,10 +156,10 @@ class CollarSimulator:
 _simulators: dict[str, CollarSimulator] = {}
 
 
-async def start_simulator(user_id: str) -> str:
+async def start_simulator(user_id: str, paused: bool = True) -> str:
     if user_id in _simulators:
         return _simulators[user_id].device_id
-    sim = CollarSimulator(user_id)
+    sim = CollarSimulator(user_id, paused=paused)
     _simulators[user_id] = sim
     await sim.start()
     return sim.device_id
@@ -146,6 +178,21 @@ async def tap_collar(user_id: str) -> bool:
         await sim.tap()
         return True
     return False
+
+
+def set_paused(user_id: str, paused: bool) -> bool:
+    """Pause or resume signal generation for a simulator. Returns True if found."""
+    sim = _simulators.get(user_id)
+    if sim:
+        sim.set_paused(paused)
+        return True
+    return False
+
+
+def is_paused(user_id: str) -> bool | None:
+    """Check if a simulator is paused. Returns None if not found."""
+    sim = _simulators.get(user_id)
+    return sim.paused if sim else None
 
 
 async def stop_all():

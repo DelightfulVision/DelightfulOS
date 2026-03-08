@@ -461,6 +461,22 @@ class SupabaseRealtimeBridge:
                      attempt, MAX_RECONNECT_ATTEMPTS, delay)
             await asyncio.sleep(delay)
             try:
+                # Cancel stale background tasks before reconnecting
+                for task in (self._receive_task, self._heartbeat_task,
+                             self._state_push_task):
+                    if task and not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                if self._ws:
+                    try:
+                        await self._ws.close()
+                    except Exception:
+                        pass
+                    self._ws = None
+
                 await self.connect(self._url, self._token, self._channel)
                 log.info("Supabase reconnected successfully")
                 return

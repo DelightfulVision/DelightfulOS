@@ -19,7 +19,31 @@
   .status.connected { background: #1a3a1a; color: #4ade80; }
   .status.disconnected { background: #3a1a1a; color: #f87171; }
 
+  .controls { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    font-family: inherit;
+    font-size: 0.85em;
+    padding: 6px 14px;
+    border: 1px solid #2a2a3a;
+    border-radius: 6px;
+    background: #1a1a24;
+    color: #e0e0e0;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: #2a2a3a; border-color: #FFD700; }
+  .btn:active { transform: scale(0.97); }
+  .btn.primary { background: #2a2000; border-color: #FFD700; color: #FFD700; }
+  .btn.primary:hover { background: #3a3000; }
+  .btn.danger { border-color: #f87171; color: #f87171; }
+  .btn.danger:hover { background: #3a1a1a; }
+  .btn.tap { border-color: #a78bfa; color: #a78bfa; }
+  .btn.tap:hover { background: #2a1a3a; }
+  .btn.sm { padding: 3px 8px; font-size: 0.78em; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid.full { grid-template-columns: 1fr; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
 
   .card {
@@ -48,13 +72,20 @@
     padding: 12px;
     margin-bottom: 8px;
   }
+  .user-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .user-name { font-weight: bold; font-size: 1.1em; }
-  .user-mode { font-size: 0.75em; padding: 2px 6px; border-radius: 3px; background: #2a2a3a; margin-left: 8px; }
+  .user-actions { margin-left: auto; display: flex; gap: 4px; }
   .meter-row { display: flex; align-items: center; margin-top: 6px; gap: 8px; }
   .meter-label { width: 100px; font-size: 0.8em; color: #aaa; text-align: right; }
   .meter-bar { flex: 1; height: 8px; background: #2a2a3a; border-radius: 4px; overflow: hidden; }
   .meter-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
   .meter-val { width: 40px; font-size: 0.8em; color: #aaa; }
+
+  .overlay-row { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .overlay-label { font-size: 0.8em; color: #888; }
+  .overlay-badge { font-size: 0.75em; padding: 2px 6px; border-radius: 3px; }
+  .overlay-badge.visible { background: #1a3a1a; color: #4ade80; }
+  .overlay-badge.hidden { background: #3a1a1a; color: #f87171; }
 
   .device-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1a1a24; }
   .device-row:last-child { border-bottom: none; }
@@ -68,6 +99,26 @@
   .signal-user { color: #a78bfa; min-width: 60px; }
   .signal-conf { color: #888; min-width: 40px; text-align: right; }
   .signal-age { color: #555; min-width: 50px; text-align: right; }
+  .signal-type.collar_tap { color: #a78bfa; font-weight: bold; }
+  .signal-type.speaking { color: #4ade80; }
+  .signal-type.about_to_speak { color: #FFD700; }
+  .signal-type.stress_high { color: #f87171; }
+
+  .ctx-event { padding: 5px 0; border-bottom: 1px solid #1a1a24; display: flex; gap: 8px; align-items: baseline; font-size: 0.85em; }
+  .ctx-event:last-child { border-bottom: none; }
+  .ctx-event .ctx-age { color: #555; min-width: 50px; font-size: 0.8em; text-align: right; }
+  .ctx-event .ctx-type { min-width: 120px; font-weight: 500; }
+  .ctx-event .ctx-detail { color: #ccc; flex: 1; }
+  .ctx-type.speech_start, .ctx-type.speech_end { color: #4ade80; }
+  .ctx-type.intent_rising { color: #FFD700; }
+  .ctx-type.stress_rising, .ctx-type.stress_sustained { color: #f87171; }
+  .ctx-type.stress_resolved { color: #4ade80; }
+  .ctx-type.collar_tap { color: #a78bfa; }
+  .ctx-type.overloaded { color: #ef4444; }
+  .ctx-type.overload_resolved { color: #4ade80; }
+  .ctx-type.mode_change { color: #60a5fa; }
+  .ctx-type.overlay_toggle, .ctx-type.haptic_sent { color: #38bdf8; }
+  .ctx-type.highlight, .ctx-type.suppress { color: #fb923c; }
 
   .transcript-row { padding: 6px 0; border-bottom: 1px solid #1a1a24; display: flex; gap: 8px; align-items: baseline; }
   .transcript-row:last-child { border-bottom: none; }
@@ -79,22 +130,89 @@
   .badge-intent { color: #FFD700; }
   .badge-stressed { color: #f87171; }
   .badge-overloaded { color: #ef4444; font-weight: bold; }
+
+  .toast {
+    position: fixed; bottom: 20px; right: 20px;
+    background: #2a2000; border: 1px solid #FFD700; color: #FFD700;
+    padding: 10px 16px; border-radius: 8px; font-size: 0.85em;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+
+  .chart-container { position: relative; margin-bottom: 8px; }
+  .chart-container canvas { width: 100%; height: 120px; display: block; border-radius: 4px; }
+  .chart-label { font-size: 0.75em; color: #888; margin-bottom: 4px; display: flex; justify-content: space-between; }
+  .chart-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+  .chart-legend-item { font-size: 0.75em; display: flex; align-items: center; gap: 4px; }
+  .chart-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .signal-timeline canvas { width: 100%; height: 80px; display: block; border-radius: 4px; }
+
+  select.mode-select {
+    font-family: inherit; font-size: 0.75em; padding: 3px 6px;
+    border: 1px solid #2a2a3a; border-radius: 3px;
+    background: #2a2a3a; color: #e0e0e0; cursor: pointer;
+  }
+  select.mode-select:focus { border-color: #FFD700; outline: none; }
 </style>
 </head>
 <body>
 
 <h1>DelightfulOS</h1>
 <div class="subtitle">
-  Distributed Wearable OS &mdash; Live Dashboard
+  Distributed Wearable OS — Live Dashboard
   <span id="conn-status" class="status disconnected">connecting...</span>
+</div>
+
+<div class="controls">
+  <button class="btn primary" onclick="startDemo()">Start Demo (2 users)</button>
+  <button class="btn danger" onclick="stopDemo()">Stop Demo</button>
+  <span style="color:#555">|</span>
+  <button class="btn" onclick="addSimUser()">+ Add User</button>
+  <button class="btn" id="btn-signals" onclick="toggleAllSignals()">Signals: OFF</button>
+  <span id="sim-status" style="font-size:0.8em;color:#555"></span>
 </div>
 
 <div class="summary-row" id="summary"></div>
 
+<div class="grid full">
+  <div class="card">
+    <h2>Realtime Signals</h2>
+    <div id="charts-area">
+      <div style="color:#555;font-size:0.85em">Start a demo to see realtime plots...</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid full">
+  <div class="card">
+    <h2>Piezo Waveform (per-user)</h2>
+    <div id="piezo-area">
+      <div style="color:#555;font-size:0.85em">Start a demo to see piezo waveforms...</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid full">
+  <div class="card">
+    <h2>Signal Timeline</h2>
+    <div class="signal-timeline">
+      <canvas id="timeline-canvas" height="80"></canvas>
+    </div>
+    <div class="chart-legend" id="timeline-legend"></div>
+  </div>
+</div>
+
+<div class="grid full">
+  <div class="card">
+    <h2>Context Log (AI Events)</h2>
+    <div id="context-events" style="max-height:240px;overflow-y:auto">No context events yet — start a demo and enable signals</div>
+  </div>
+</div>
+
 <div class="grid">
   <div class="card">
     <h2>Users</h2>
-    <div id="users">No users yet</div>
+    <div id="users">No users yet — click "Start Demo" above</div>
   </div>
   <div class="card">
     <h2>Devices</h2>
@@ -104,146 +222,805 @@
 
 <div class="grid">
   <div class="card">
-    <h2>Transcriptions</h2>
-    <div id="transcriptions">No transcriptions yet</div>
-  </div>
-  <div class="card">
     <h2>Signal Feed</h2>
     <div id="signals">Waiting for signals...</div>
   </div>
+  <div class="card">
+    <h2>Transcriptions</h2>
+    <div id="transcriptions">No transcriptions yet</div>
+  </div>
 </div>
 
+<div id="toast" class="toast"></div>
+
 <script>
+const API = location.origin;
 const WS_URL = `ws://${location.host}/system/dashboard/ws`;
-let ws;
-let reconnectTimer;
+let ws, reconnectTimer;
+let allUserIds = [];
 
-// HTML-escape to prevent XSS from device IDs, transcription text, etc.
-function esc(s) {
-  if (s == null) return '';
-  const d = document.createElement('div');
-  d.textContent = String(s);
-  return d.innerHTML;
+// ============================================================
+// Time-series history for charts (rolling 60s @ 500ms)
+// ============================================================
+const HISTORY_LEN = 120;
+const userHistory = {};
+const signalEvents = [];
+const SIGNAL_COLORS = {
+  speaking: '#4ade80', speaking_confirmed: '#4ade80',
+  about_to_speak: '#FFD700', stress_high: '#f87171',
+  collar_tap: '#a78bfa', orientation_shift: '#60a5fa',
+  breathing_change: '#38bdf8', engagement_drop: '#fb923c',
+  engagement_rise: '#34d399', speech_ended: '#6b7280',
+};
+const USER_COLORS = ['#FFD700', '#a78bfa', '#4ade80', '#f87171', '#38bdf8', '#fb923c'];
+
+function getUserColor(uid) {
+  const i = allUserIds.indexOf(uid);
+  return USER_COLORS[i >= 0 ? i % USER_COLORS.length : 0];
 }
 
-function connect() {
-  ws = new WebSocket(WS_URL);
-
-  ws.onopen = () => {
-    document.getElementById('conn-status').textContent = 'live';
-    document.getElementById('conn-status').className = 'status connected';
-  };
-
-  ws.onclose = () => {
-    document.getElementById('conn-status').textContent = 'disconnected';
-    document.getElementById('conn-status').className = 'status disconnected';
-    reconnectTimer = setTimeout(connect, 2000);
-  };
-
-  ws.onerror = () => ws.close();
-
-  ws.onmessage = (evt) => {
-    const data = JSON.parse(evt.data);
-    renderSummary(data.summary);
-    renderUsers(data.users);
-    renderDevices(data.devices);
-    renderSignals(data.recent_signals);
-    renderTranscriptions(data.transcriptions);
-  };
+function ensureHistory(uid) {
+  if (!userHistory[uid]) userHistory[uid] = { speech_intent:[], stress_level:[], engagement:[], arousal:[] };
+  return userHistory[uid];
 }
 
-function renderSummary(s) {
-  document.getElementById('summary').innerHTML = `
+function pushHistory(uid, d) {
+  const h = ensureHistory(uid);
+  for (const k of ['speech_intent','stress_level','engagement','arousal']) {
+    h[k].push(d[k] || 0);
+    if (h[k].length > HISTORY_LEN) h[k].shift();
+  }
+}
+
+function pushSignalEvents(sigs) {
+  const now = Date.now();
+  for (const s of sigs) {
+    if (s.age < 1.0) {
+      signalEvents.push({ timestamp: now - s.age*1000, type: s.signal_type, user: s.source_user, color: SIGNAL_COLORS[s.signal_type] || '#555' });
+    }
+  }
+  const cutoff = now - 60000;
+  while (signalEvents.length && signalEvents[0].timestamp < cutoff) signalEvents.shift();
+}
+
+// ============================================================
+// Smooth interpolation state — lerp between WS frames at 60fps
+// ============================================================
+const displayHistory = {};  // uid -> {key: [...interpolated values]}
+const LERP_SPEED = 0.15;   // per-frame lerp factor (0-1, higher = snappier)
+
+function ensureDisplayHistory(uid) {
+  if (!displayHistory[uid]) displayHistory[uid] = { speech_intent:[], stress_level:[], engagement:[], arousal:[] };
+  return displayHistory[uid];
+}
+
+function lerpHistories() {
+  // Smoothly interpolate display values toward target (real) values
+  for (const uid of Object.keys(userHistory)) {
+    const target = userHistory[uid];
+    const display = ensureDisplayHistory(uid);
+    for (const k of ['speech_intent','stress_level','engagement','arousal']) {
+      const tArr = target[k];
+      const dArr = display[k];
+      // Ensure display array matches length
+      while (dArr.length < tArr.length) dArr.push(tArr[dArr.length]);
+      while (dArr.length > tArr.length) dArr.pop();
+      // Lerp each value
+      for (let i = 0; i < dArr.length; i++) {
+        dArr[i] += (tArr[i] - dArr[i]) * LERP_SPEED;
+      }
+    }
+  }
+}
+
+// ============================================================
+// Canvas drawing — Catmull-Rom spline for smooth curves
+// ============================================================
+
+// Attempt monotone cubic Hermite for smooth, non-overshooting curves
+function catmullRomPath(ctx, points, tension) {
+  // points: [{x,y}, ...], tension: 0-1 (0.3-0.5 is nice)
+  if (points.length < 2) return;
+  ctx.moveTo(points[0].x, points[0].y);
+  if (points.length === 2) { ctx.lineTo(points[1].x, points[1].y); return; }
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+}
+
+function drawLineChart(canvas, series) {
+  const dpr = devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width, h = 120;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  canvas.style.height = h+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+
+  ctx.fillStyle = '#0a0a12'; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle = '#1a1a2a'; ctx.lineWidth = 1;
+  for (let i=0;i<=4;i++){const y=h*i/4; ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+
+  ctx.fillStyle='#444'; ctx.font='10px monospace';
+  ctx.textAlign='left'; ctx.fillText('1.0',2,12); ctx.fillText('0.5',2,h/2+4); ctx.fillText('0.0',2,h-2);
+  ctx.textAlign='right'; ctx.fillText('now',w-2,h-2); ctx.fillText('-30s',w/2,h-2); ctx.fillText('-60s',30,h-2);
+
+  const pad=28, plotW=w-pad, plotH=h-16, baseY=h-8;
+  const tension = 0.25;
+
+  for (const s of series) {
+    if (!s.data||s.data.length<2) continue;
+
+    // Build point array
+    const pts = [];
+    for (let i=0;i<s.data.length;i++){
+      pts.push({ x: pad+(i/(HISTORY_LEN-1))*plotW, y: baseY - s.data[i]*plotH });
+    }
+
+    // Stroke with Catmull-Rom spline
+    ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.globalAlpha=0.9;
+    ctx.beginPath();
+    catmullRomPath(ctx, pts, tension);
+    ctx.stroke();
+
+    // Fill under curve
+    ctx.globalAlpha=0.10; ctx.fillStyle=s.color;
+    ctx.lineTo(pts[pts.length-1].x, baseY);
+    ctx.lineTo(pts[0].x, baseY);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha=1;
+
+    // Glow dot at current value (rightmost point)
+    const last = pts[pts.length-1];
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, 3, 0, Math.PI*2);
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+    // Glow ring
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, 6, 0, Math.PI*2);
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = 0.15;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawTimeline(canvas, events) {
+  const dpr = devicePixelRatio||1;
+  const rect = canvas.getBoundingClientRect();
+  const w=rect.width, h=80;
+  canvas.width=w*dpr; canvas.height=h*dpr; canvas.style.height=h+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+
+  ctx.fillStyle='#0a0a12'; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle='#1a1a2a'; ctx.lineWidth=1;
+  for(let i=0;i<=6;i++){const x=w*i/6; ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
+
+  ctx.fillStyle='#444'; ctx.font='10px monospace';
+  ctx.textAlign='center'; ctx.fillText('-60s',w*0/6+16,h-2); ctx.fillText('-30s',w*3/6,h-2);
+  ctx.textAlign='right'; ctx.fillText('now',w-2,h-2);
+
+  if(!events.length){ctx.fillStyle='#333';ctx.textAlign='center';ctx.font='12px monospace';ctx.fillText('Waiting for signals...',w/2,h/2);return;}
+
+  const now=Date.now(), windowMs=60000;
+  const users=[...new Set(events.map(e=>e.user))];
+  const laneH=Math.min(24,(h-16)/Math.max(users.length,1));
+
+  ctx.textAlign='left'; ctx.font='10px monospace';
+  users.forEach((uid,i)=>{ctx.fillStyle=getUserColor(uid);ctx.fillText(uid,4,10+i*laneH+laneH/2+3);});
+
+  const labelW=60;
+  for(const e of events){
+    const age=now-e.timestamp; if(age>windowMs) continue;
+    const x=labelW+((1-age/windowMs)*(w-labelW-4));
+    const y=10+users.indexOf(e.user)*laneH+laneH/2;
+    ctx.fillStyle=e.color; ctx.globalAlpha=0.9;
+    if(e.type==='collar_tap'){ctx.save();ctx.translate(x,y);ctx.rotate(Math.PI/4);ctx.fillRect(-4,-4,8,8);ctx.restore();}
+    else if(e.type==='speaking'||e.type==='speaking_confirmed'){ctx.fillRect(x-1.5,y-laneH*0.35,3,laneH*0.7);}
+    else{ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();}
+    ctx.globalAlpha=1;
+  }
+}
+
+// ============================================================
+// Piezo waveform synthesizer
+// ============================================================
+// Generates a realistic throat-mounted piezo waveform per user.
+// Driven by signal events — no real ADC data needed.
+//
+// Waveform model (normalized 0-1, biased at ~0.12 baseline):
+//   Quiet:         low-amplitude noise floor (~0.10-0.14)
+//   About to speak: subtle throat tension rise (~0.18-0.22)
+//   Speaking:      sustained oscillation (~0.25-0.55)
+//   Tap:           sharp transient spike to ~0.85, fast ring-down
+//   Breathing:     slow sinusoidal modulation on baseline
+
+const PIEZO_BUF_LEN = 300; // ~5s at 60fps
+const piezoState = {};  // uid -> {buf:[], baseline, envelope, speech, tapDecay, breathPhase}
+
+function ensurePiezo(uid) {
+  if (!piezoState[uid]) {
+    const buf = new Float32Array(PIEZO_BUF_LEN);
+    buf.fill(0.12);
+    piezoState[uid] = {
+      buf: buf,
+      baseline: 0.12,
+      envelope: 0.0,
+      speech: false,
+      aboutToSpeak: false,
+      tapDecay: 0.0,
+      tapPhase: 0.0,
+      breathPhase: Math.random() * Math.PI * 2,
+      breathRate: 0.03 + Math.random() * 0.01,
+      stressBoost: 0.0,
+    };
+  }
+  return piezoState[uid];
+}
+
+const lastTapTime = {}; // uid -> timestamp, for dedup
+
+function injectPiezoTap(uid) {
+  const now = Date.now();
+  if (lastTapTime[uid] && (now - lastTapTime[uid]) < 1000) return; // dedup within 1s
+  lastTapTime[uid] = now;
+  const p = ensurePiezo(uid);
+  p.tapDecay = 1.0;
+  p.tapPhase = 0.0; // start at 0 so first swing is positive
+}
+
+function tickPiezo(uid) {
+  const p = ensurePiezo(uid);
+
+  // Breathing modulation — barely visible when idle
+  p.breathPhase += p.breathRate;
+  const breathAmp = p.envelope > 0.03 ? 0.012 : 0.002;
+  const breathMod = Math.sin(p.breathPhase) * breathAmp;
+
+  // Target envelope based on state
+  let targetEnv = 0.0;
+  if (p.speech) {
+    targetEnv = 0.25 + Math.random() * 0.2 + p.stressBoost * 0.1;
+  } else if (p.aboutToSpeak) {
+    targetEnv = 0.08 + Math.random() * 0.05;
+  }
+  // Smooth envelope follow
+  p.envelope += (targetEnv - p.envelope) * 0.08;
+
+  // Noise floor — very subtle when idle
+  const noiseAmp = p.envelope > 0.03 ? 0.015 : 0.004;
+  const noise = (Math.random() - 0.5) * noiseAmp;
+
+  // Speech oscillation (simulate vocal cord vibration ~100-200Hz aliased)
+  let speechOsc = 0;
+  if (p.envelope > 0.03) {
+    const f1 = Math.sin(performance.now() * 0.045) * 0.6;
+    const f2 = Math.sin(performance.now() * 0.078) * 0.3;
+    const f3 = Math.sin(performance.now() * 0.12) * 0.1;
+    speechOsc = (f1 + f2 + f3) * p.envelope;
+  }
+
+  // Tap transient: realistic piezo impulse response
+  // Real piezo taps are bipolar: +spike, -undershoot, damped ringing
+  // Total duration ~20-50ms for finger tap (at 60fps, ~1-3 frames)
+  // We stretch slightly for visual clarity (~15 frames / 250ms)
+  let tapSample = 0;
+  if (p.tapDecay > 0.003) {
+    p.tapPhase += 0.55; // ring frequency (~5 oscillations over decay)
+    // Damped sinusoid starting positive — models piezo AC response
+    // First half-cycle is the big positive spike, then negative undershoot, then ring
+    tapSample = p.tapDecay * Math.sin(p.tapPhase) * 0.75;
+    p.tapDecay *= 0.82; // fast exponential envelope decay
+  }
+
+  // Compose sample
+  const sample = p.baseline + breathMod + noise + speechOsc + tapSample;
+  // Clamp to 0-1
+  const clamped = Math.max(0, Math.min(1, sample));
+
+  // Shift buffer left and push new sample
+  p.buf.copyWithin(0, 1);
+  p.buf[PIEZO_BUF_LEN - 1] = clamped;
+}
+
+function drawPiezoWaveform(canvas, uid) {
+  const p = piezoState[uid];
+  if (!p) return;
+
+  const dpr = devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width, h = 100;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // Background
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = '#1a1a2a'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = h * i / 4;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // Threshold lines
+  const baseY = h - (0.12 * h);
+  // Baseline
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(0, baseY); ctx.lineTo(w, baseY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Tap threshold (~baseline + delta)
+  const tapThreshY = h - (0.22 * h);
+  ctx.strokeStyle = '#a78bfa33'; ctx.lineWidth = 1; ctx.setLineDash([2, 6]);
+  ctx.beginPath(); ctx.moveTo(0, tapThreshY); ctx.lineTo(w, tapThreshY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Speech threshold
+  const speechThreshY = h - (0.30 * h);
+  ctx.strokeStyle = '#4ade8033'; ctx.lineWidth = 1; ctx.setLineDash([2, 6]);
+  ctx.beginPath(); ctx.moveTo(0, speechThreshY); ctx.lineTo(w, speechThreshY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Labels
+  ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+  ctx.fillText('baseline', 2, baseY - 3);
+  ctx.fillStyle = '#a78bfa66';
+  ctx.fillText('tap threshold', 2, tapThreshY - 3);
+  ctx.fillStyle = '#4ade8066';
+  ctx.fillText('speech threshold', 2, speechThreshY - 3);
+
+  // Y-axis
+  ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+  ctx.fillText('1.0', w - 2, 10);
+  ctx.fillText('0.5', w - 2, h / 2 + 3);
+  ctx.fillText('0.0', w - 2, h - 2);
+
+  // Waveform line
+  const color = getUserColor(uid);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  for (let i = 0; i < PIEZO_BUF_LEN; i++) {
+    const x = (i / (PIEZO_BUF_LEN - 1)) * w;
+    const y = h - (p.buf[i] * h);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Fill under
+  ctx.globalAlpha = 0.06; ctx.fillStyle = color;
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Current value indicator
+  const curVal = p.buf[PIEZO_BUF_LEN - 1];
+  const curY = h - (curVal * h);
+  ctx.beginPath(); ctx.arc(w - 2, curY, 3, 0, Math.PI * 2);
+  ctx.fillStyle = color; ctx.globalAlpha = 0.9; ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function renderPiezoArea(users) {
+  const area = document.getElementById('piezo-area');
+  if (!users.length) {
+    area.innerHTML = '<div style="color:#555;font-size:0.85em">Start a demo to see piezo waveforms...</div>';
+    return;
+  }
+
+  const uid_key = users.map(u => u.user_id).sort().join(',');
+  if (area.dataset.uids !== uid_key) {
+    area.dataset.uids = uid_key;
+    let html = '';
+    for (const u of users) {
+      const color = getUserColor(u.user_id);
+      html += `<div class="chart-container">
+        <div class="chart-label">
+          <span style="color:${color}">${esc(u.user_id)} — Piezo ADC (throat)</span>
+          <span>
+            <button class="btn sm" id="piezo-sig-${u.user_id}" onclick="toggleSignals('${esc(u.user_id)}')" style="font-size:0.7em;padding:1px 6px">signals off</button>
+            <span style="color:#555;font-size:0.9em">~5s window</span>
+          </span>
+        </div>
+        <canvas id="piezo-${u.user_id}" height="100"></canvas>
+      </div>`;
+    }
+    area.innerHTML = html;
+  }
+}
+
+// ============================================================
+// Charts area (per-metric, all users overlaid)
+// ============================================================
+const chartMetrics = [
+  {key:'speech_intent', label:'Speech Intent', color:'#FFD700'},
+  {key:'stress_level', label:'Stress', color:'#f87171'},
+  {key:'engagement', label:'Engagement', color:'#4ade80'},
+  {key:'arousal', label:'Arousal', color:'#60a5fa'},
+];
+
+function renderCharts(users) {
+  const area = document.getElementById('charts-area');
+  if(!users.length){area.innerHTML='<div style="color:#555;font-size:0.85em">Start a demo to see realtime plots...</div>';return;}
+
+  // Hide signal charts entirely when all sims are paused (clean mode)
+  const anySignalsOn = Object.values(latestSimPaused).some(p => p === false);
+  if (!anySignalsOn) {
+    area.innerHTML = '<div style="color:#555;font-size:0.85em">Enable signals to see realtime state plots...</div>';
+    area.dataset.uids = '';
+    return;
+  }
+
+  const uid_key=users.map(u=>u.user_id).sort().join(',');
+  if(area.dataset.uids!==uid_key){
+    area.dataset.uids=uid_key;
+    let html='';
+    for(const m of chartMetrics){
+      html+=`<div class="chart-container"><div class="chart-label"><span>${m.label}</span><span style="color:${m.color}">0-100%</span></div><canvas id="chart-${m.key}" height="120"></canvas><div class="chart-legend" id="legend-${m.key}"></div></div>`;
+    }
+    area.innerHTML=html;
+    for(const m of chartMetrics){
+      document.getElementById(`legend-${m.key}`).innerHTML=users.map((u,i)=>{
+        const c=USER_COLORS[i%USER_COLORS.length];
+        return `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${c}"></span>${esc(u.user_id)}</span>`;
+      }).join('');
+    }
+  }
+
+  // Actual drawing happens in the rAF loop
+}
+
+// ============================================================
+// Utility
+// ============================================================
+function esc(s){if(s==null)return'';const d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
+
+function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2000);}
+
+async function api(method,path,body){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body)opts.body=JSON.stringify(body);
+  return(await fetch(API+path,opts)).json();
+}
+
+// ============================================================
+// Demo CRUD actions
+// ============================================================
+async function startDemo(){
+  const r=await api('POST','/system/demo/start');
+  toast(`Demo started: ${r.users.map(u=>u.user_id).join(', ')}`);
+}
+
+async function stopDemo(){
+  await api('POST','/system/demo/stop');
+  for(const k of Object.keys(userHistory))delete userHistory[k];
+  for(const k of Object.keys(displayHistory))delete displayHistory[k];
+  for(const k of Object.keys(piezoState))delete piezoState[k];
+  signalEvents.length=0;
+  prevUserKey='';
+  toast('Demo stopped');
+}
+
+async function addSimUser(){
+  const name=prompt('User ID:',`user${Math.floor(Math.random()*100)}`);
+  if(!name)return;
+  await api('POST',`/system/simulate/${encodeURIComponent(name)}`);
+  toast(`Simulator started: ${name}`);
+}
+
+async function removeUser(uid){
+  await api('DELETE',`/system/demo/user/${encodeURIComponent(uid)}`);
+  delete userHistory[uid];
+  delete displayHistory[uid];
+  delete piezoState[uid];
+  prevUserKey='';
+  toast(`Removed ${uid}`);
+}
+
+async function tapUser(uid){
+  injectPiezoTap(uid); // immediate visual feedback
+  await api('POST',`/system/demo/tap/${encodeURIComponent(uid)}`);
+  toast(`Tap sent to ${uid}`);
+}
+
+function setMode(uid,mode){
+  api('POST',`/system/mode/${encodeURIComponent(uid)}/${mode}`);
+}
+
+let signalsOn = false;
+async function toggleAllSignals(){
+  signalsOn = !signalsOn;
+  const state = signalsOn ? 'on' : 'off';
+  for (const uid of allUserIds) {
+    await api('POST',`/system/demo/signals/${encodeURIComponent(uid)}/${state}`);
+  }
+  toast(`Signals ${state.toUpperCase()} for all users`);
+}
+
+async function toggleSignals(uid){
+  const paused = latestSimPaused[uid];
+  const state = paused ? 'on' : 'off';
+  await api('POST',`/system/demo/signals/${encodeURIComponent(uid)}/${state}`);
+  toast(`${uid} signals ${state.toUpperCase()}`);
+}
+
+// ============================================================
+// User cards — diff-aware rendering to preserve dropdowns
+// ============================================================
+let prevUserKey = '';
+
+function meterColor(v,t){
+  if(t==='stress')return v>0.6?'#f87171':v>0.3?'#fbbf24':'#4ade80';
+  if(t==='intent')return v>0.7?'#FFD700':v>0.3?'#fbbf24':'#555';
+  if(t==='engagement')return v>0.6?'#4ade80':v>0.3?'#fbbf24':'#f87171';
+  return'#60a5fa';
+}
+
+function buildUserCard(u) {
+  const modes = ['social','focus','minimal','calibration'];
+  const modeOpts = modes.map(m=>`<option value="${m}" ${m===u.mode?'selected':''}>${m}</option>`).join('');
+
+  return `<div class="user-card" id="uc-${u.user_id}">
+    <div class="user-header">
+      <span class="user-name">${esc(u.user_id)}</span>
+      <select class="mode-select" data-uid="${esc(u.user_id)}" onchange="setMode('${esc(u.user_id)}',this.value)">${modeOpts}</select>
+      <span id="badges-${u.user_id}"></span>
+      <div class="user-actions">
+        <button class="btn tap sm" onclick="tapUser('${esc(u.user_id)}')">Tap</button>
+        <button class="btn danger sm" onclick="removeUser('${esc(u.user_id)}')">X</button>
+      </div>
+    </div>
+    <div class="meter-row"><div class="meter-label">Speech</div><div class="meter-bar"><div class="meter-fill" id="mf-${u.user_id}-speech"></div></div><div class="meter-val" id="mv-${u.user_id}-speech"></div></div>
+    <div class="meter-row"><div class="meter-label">Stress</div><div class="meter-bar"><div class="meter-fill" id="mf-${u.user_id}-stress"></div></div><div class="meter-val" id="mv-${u.user_id}-stress"></div></div>
+    <div class="meter-row"><div class="meter-label">Engagement</div><div class="meter-bar"><div class="meter-fill" id="mf-${u.user_id}-engagement"></div></div><div class="meter-val" id="mv-${u.user_id}-engagement"></div></div>
+    <div class="meter-row"><div class="meter-label">Arousal</div><div class="meter-bar"><div class="meter-fill" id="mf-${u.user_id}-arousal"></div></div><div class="meter-val" id="mv-${u.user_id}-arousal"></div></div>
+    <div class="meter-row"><div class="meter-label">Attention</div><div style="flex:1;font-size:0.85em;color:#aaa" id="attn-${u.user_id}"></div></div>
+    <div class="overlay-row" id="overlays-${u.user_id}"></div>
+  </div>`;
+}
+
+function updateMeter(uid, key, val, type) {
+  const pct = Math.round(val*100);
+  const fill = document.getElementById(`mf-${uid}-${key}`);
+  const txt = document.getElementById(`mv-${uid}-${key}`);
+  if(fill){ fill.style.width=pct+'%'; fill.style.background=meterColor(val,type); }
+  if(txt) txt.textContent=pct+'%';
+}
+
+function updateUserCard(u) {
+  // Meters
+  updateMeter(u.user_id,'speech',u.speech_intent,'intent');
+  updateMeter(u.user_id,'stress',u.stress_level,'stress');
+  updateMeter(u.user_id,'engagement',u.engagement,'engagement');
+  updateMeter(u.user_id,'arousal',u.arousal,'arousal');
+
+  // Attention
+  const attn=document.getElementById(`attn-${u.user_id}`);
+  if(attn)attn.textContent=u.attention_direction;
+
+  // Badges
+  const badges=document.getElementById(`badges-${u.user_id}`);
+  if(badges){
+    let b='';
+    if(u.speech_active) b+=' <span class="badge-speaking">[SPEAKING]</span>';
+    else if(u.speech_intent>0.7) b+=' <span class="badge-intent">[ABOUT TO SPEAK]</span>';
+    if(u.overloaded) b+=' <span class="badge-overloaded">[OVERLOADED]</span>';
+    else if(u.stress_level>0.6) b+=' <span class="badge-stressed">[STRESSED]</span>';
+    badges.innerHTML=b;
+  }
+
+  // Mode select — only update if not focused
+  const sel=document.querySelector(`select[data-uid="${u.user_id}"]`);
+  if(sel && document.activeElement!==sel) sel.value=u.mode;
+
+  // Overlays
+  const ov=document.getElementById(`overlays-${u.user_id}`);
+  if(ov){
+    const hidden=u.hidden_overlays||[];
+    const others=allUserIds.filter(id=>id!==u.user_id);
+    if(others.length===0){ov.innerHTML='';return;}
+    ov.innerHTML='<span class="overlay-label">Overlays:</span> '+others.map(oid=>{
+      const isH=hidden.includes(oid);
+      return `<span class="overlay-badge ${isH?'hidden':'visible'}">${esc(oid)}: ${isH?'HIDDEN':'VISIBLE'}</span>`;
+    }).join(' ');
+  }
+}
+
+function renderUsers(users) {
+  const el=document.getElementById('users');
+  if(!users.length){el.innerHTML='No users yet — click "Start Demo" above';prevUserKey='';return;}
+
+  // Only rebuild DOM when user list changes
+  const key=users.map(u=>u.user_id).sort().join(',');
+  if(key!==prevUserKey){
+    prevUserKey=key;
+    el.innerHTML=users.map(u=>buildUserCard(u)).join('');
+  }
+
+  // Always update values in-place (no remount)
+  for(const u of users) updateUserCard(u);
+}
+
+// ============================================================
+// Other renderers
+// ============================================================
+function renderSimStatus(s){
+  const el=document.getElementById('sim-status');
+  if(s.simulators>0){el.textContent=`${s.simulators} simulator(s) active`;el.style.color='#4ade80';}
+  else{el.textContent='no simulators';el.style.color='#555';}
+}
+
+function renderSummary(s){
+  document.getElementById('summary').innerHTML=`
     <div class="stat"><div class="num">${s.total_devices}</div><div class="label">Devices</div></div>
     <div class="stat"><div class="num">${s.total_users}</div><div class="label">Users</div></div>
     <div class="stat"><div class="num">${s.active_speakers}</div><div class="label">Speaking</div></div>
     <div class="stat"><div class="num">${s.about_to_speak}</div><div class="label">About to Speak</div></div>
     <div class="stat"><div class="num">${s.stressed}</div><div class="label">Stressed</div></div>
-    <div class="stat"><div class="num">${s.overloaded}</div><div class="label">Overloaded</div></div>
-  `;
+    <div class="stat"><div class="num">${s.overloaded}</div><div class="label">Overloaded</div></div>`;
 }
 
-function meterColor(val, type) {
-  if (type === 'stress') return val > 0.6 ? '#f87171' : val > 0.3 ? '#fbbf24' : '#4ade80';
-  if (type === 'intent') return val > 0.7 ? '#FFD700' : val > 0.3 ? '#fbbf24' : '#555';
-  if (type === 'engagement') return val > 0.6 ? '#4ade80' : val > 0.3 ? '#fbbf24' : '#f87171';
-  return '#60a5fa';
+function renderDevices(devs){
+  const el=document.getElementById('devices');
+  if(!devs.length){el.innerHTML='No devices';return;}
+  el.innerHTML=devs.map(d=>`<div class="device-row"><div class="dot ${d.alive?'alive':'dead'}"></div><div style="flex:1"><strong>${esc(d.device_id)}</strong> <span style="color:#888;font-size:0.85em">(${esc(d.device_type)}, ${esc(d.user_id)})</span></div><div style="font-size:0.8em;color:#888">${d.wifi_rssi?esc(d.wifi_rssi)+' dBm':''} ${d.last_seen}s ago</div></div>`).join('');
 }
 
-function meter(label, val, type) {
-  const pct = Math.round(val * 100);
-  const color = meterColor(val, type);
-  return `<div class="meter-row">
-    <div class="meter-label">${esc(label)}</div>
-    <div class="meter-bar"><div class="meter-fill" style="width:${pct}%;background:${color}"></div></div>
-    <div class="meter-val">${pct}%</div>
-  </div>`;
+function renderTranscriptions(txns){
+  const el=document.getElementById('transcriptions');
+  if(!txns||!txns.length){el.innerHTML='No transcriptions yet';return;}
+  el.innerHTML=txns.map(t=>`<div class="transcript-row"><div class="transcript-user">${esc(t.source_user)}</div><div class="transcript-text">${esc(t.text)}</div><div class="transcript-meta">${t.latency}s &middot; ${t.age}s ago</div></div>`).reverse().join('');
 }
 
-function renderUsers(users) {
-  if (!users.length) { document.getElementById('users').innerHTML = 'No users yet'; return; }
-  document.getElementById('users').innerHTML = users.map(u => {
-    let badges = '';
-    if (u.speech_active) badges += ' <span class="badge-speaking">[SPEAKING]</span>';
-    else if (u.speech_intent > 0.7) badges += ' <span class="badge-intent">[ABOUT TO SPEAK]</span>';
-    if (u.overloaded) badges += ' <span class="badge-overloaded">[OVERLOADED]</span>';
-    else if (u.stress_level > 0.6) badges += ' <span class="badge-stressed">[STRESSED]</span>';
+function sigClass(t){
+  if(t==='collar_tap')return'collar_tap';
+  if(t==='speaking'||t==='speaking_confirmed')return'speaking';
+  if(t==='about_to_speak')return'about_to_speak';
+  if(t==='stress_high')return'stress_high';
+  return'';
+}
 
-    return `<div class="user-card">
-      <div><span class="user-name">${esc(u.user_id)}</span><span class="user-mode">${esc(u.mode)}</span>${badges}</div>
-      ${meter('Speech', u.speech_intent, 'intent')}
-      ${meter('Stress', u.stress_level, 'stress')}
-      ${meter('Engagement', u.engagement, 'engagement')}
-      ${meter('Arousal', u.arousal, 'arousal')}
-      <div class="meter-row">
-        <div class="meter-label">Attention</div>
-        <div style="flex:1;font-size:0.85em;color:#aaa">${esc(u.attention_direction)}</div>
-      </div>
-    </div>`;
+function renderSignals(sigs){
+  const el=document.getElementById('signals');
+  if(!sigs.length){el.innerHTML='Waiting for signals...';return;}
+  el.innerHTML=sigs.map(s=>`<div class="signal-row"><div class="signal-user">${esc(s.source_user)}</div><div class="signal-type ${sigClass(s.signal_type)}">${esc(s.signal_type)}</div><div class="signal-conf">${(s.confidence*100).toFixed(0)}%</div><div class="signal-age">${s.age}s</div></div>`).reverse().join('');
+}
+
+function renderContextEvents(events){
+  const el=document.getElementById('context-events');
+  if(!events||!events.length){el.innerHTML='No context events yet — start a demo and enable signals';return;}
+  // Show most recent first
+  el.innerHTML=events.slice().reverse().map(e=>{
+    return `<div class="ctx-event"><div class="ctx-age">${e.age}s</div><div class="ctx-type ${e.event}">${esc(e.event)}</div><div style="color:${getUserColor(e.user)};min-width:50px">${esc(e.user)}</div><div class="ctx-detail">${esc(e.detail)}</div></div>`;
   }).join('');
 }
 
-function renderDevices(devs) {
-  if (!devs.length) { document.getElementById('devices').innerHTML = 'No devices'; return; }
-  document.getElementById('devices').innerHTML = devs.map(d => `
-    <div class="device-row">
-      <div class="dot ${d.alive ? 'alive' : 'dead'}"></div>
-      <div style="flex:1">
-        <strong>${esc(d.device_id)}</strong>
-        <span style="color:#888;font-size:0.85em"> (${esc(d.device_type)}, ${esc(d.user_id)})</span>
-      </div>
-      <div style="font-size:0.8em;color:#888">
-        ${d.wifi_rssi ? esc(d.wifi_rssi) + ' dBm' : ''}
-        ${d.last_seen}s ago
-      </div>
-    </div>
-  `).join('');
+function renderTimelineLegend(){
+  document.getElementById('timeline-legend').innerHTML=Object.entries(SIGNAL_COLORS).slice(0,7).map(([t,c])=>`<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${c}"></span>${t}</span>`).join('');
 }
 
-function renderTranscriptions(txns) {
-  if (!txns || !txns.length) { document.getElementById('transcriptions').innerHTML = 'No transcriptions yet'; return; }
-  document.getElementById('transcriptions').innerHTML = txns.map(t => `
-    <div class="transcript-row">
-      <div class="transcript-user">${esc(t.source_user)}</div>
-      <div class="transcript-text">${esc(t.text)}</div>
-      <div class="transcript-meta">${t.latency}s &middot; ${t.age}s ago</div>
-    </div>
-  `).reverse().join('');
+// ============================================================
+// WebSocket — only ingests data, no rendering here
+// ============================================================
+let latestUsers = [];
+let latestSimPaused = {}; // uid -> bool
+
+function connect(){
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{document.getElementById('conn-status').textContent='live';document.getElementById('conn-status').className='status connected';};
+  ws.onclose=()=>{document.getElementById('conn-status').textContent='disconnected';document.getElementById('conn-status').className='status disconnected';reconnectTimer=setTimeout(connect,2000);};
+  ws.onerror=()=>ws.close();
+  ws.onmessage=(evt)=>{
+    const data=JSON.parse(evt.data);
+    allUserIds=(data.users||[]).map(u=>u.user_id);
+    latestUsers=data.users||[];
+    for(const u of latestUsers) pushHistory(u.user_id,u);
+    pushSignalEvents(data.recent_signals||[]);
+    // Update piezo state from user state
+    // Only drive speech/stress when signals are enabled (not paused)
+    const simPaused = data.summary.sim_paused || {};
+    for (const u of latestUsers) {
+      const p = ensurePiezo(u.user_id);
+      const paused = simPaused[u.user_id] !== false;
+      p.speech = paused ? false : u.speech_active;
+      p.aboutToSpeak = paused ? false : (!u.speech_active && u.speech_intent > 0.5);
+      p.stressBoost = paused ? 0 : u.stress_level;
+    }
+    // Inject taps from any source (real collar, API, etc.)
+    for (const s of (data.recent_signals || [])) {
+      if (s.age < 1.0 && s.signal_type === 'collar_tap') {
+        injectPiezoTap(s.source_user); // dedup inside prevents multi-fire
+      }
+    }
+    // DOM updates that don't need 60fps
+    renderSummary(data.summary);
+    renderCharts(latestUsers);
+    renderPiezoArea(latestUsers);
+    renderUsers(latestUsers);
+    renderDevices(data.devices||[]);
+    renderSignals(data.recent_signals||[]);
+    renderTranscriptions(data.transcriptions);
+    renderSimStatus(data.summary);
+    renderContextEvents(data.context_events||[]);
+    // Track paused state
+    latestSimPaused = data.summary.sim_paused || {};
+    updateSignalsButton();
+  };
 }
 
-function renderSignals(sigs) {
-  if (!sigs.length) { document.getElementById('signals').innerHTML = 'Waiting for signals...'; return; }
-  document.getElementById('signals').innerHTML = sigs.map(s => `
-    <div class="signal-row">
-      <div class="signal-user">${esc(s.source_user)}</div>
-      <div class="signal-type">${esc(s.signal_type)}</div>
-      <div class="signal-conf">${(s.confidence * 100).toFixed(0)}%</div>
-      <div class="signal-age">${s.age}s</div>
-    </div>
-  `).reverse().join('');
+function updateSignalsButton(){
+  const btn = document.getElementById('btn-signals');
+  if (!btn) return;
+  const anyOn = Object.values(latestSimPaused).some(p => p === false);
+  signalsOn = anyOn;
+  btn.textContent = anyOn ? 'Signals: ON' : 'Signals: OFF';
+  btn.style.borderColor = anyOn ? '#4ade80' : '#555';
+  btn.style.color = anyOn ? '#4ade80' : '#888';
 }
 
+// ============================================================
+// 60fps render loop — smooth chart interpolation
+// ============================================================
+function drawChartsSmooth() {
+  // Lerp display values toward real values
+  lerpHistories();
+
+  // Draw each metric chart using interpolated data
+  for (const m of chartMetrics) {
+    const cv = document.getElementById(`chart-${m.key}`);
+    if (!cv) continue;
+    const series = latestUsers.map((u, i) => ({
+      data: ensureDisplayHistory(u.user_id)[m.key] || [],
+      color: USER_COLORS[i % USER_COLORS.length],
+    }));
+    drawLineChart(cv, series);
+  }
+
+  // Tick + draw piezo waveforms at 60fps
+  for (const u of latestUsers) {
+    tickPiezo(u.user_id);
+    const cv = document.getElementById(`piezo-${u.user_id}`);
+    if (cv) drawPiezoWaveform(cv, u.user_id);
+    // Update per-user signal toggle button
+    const sigBtn = document.getElementById(`piezo-sig-${u.user_id}`);
+    if (sigBtn) {
+      const paused = latestSimPaused[u.user_id];
+      sigBtn.textContent = paused === false ? 'signals on' : 'signals off';
+      sigBtn.style.color = paused === false ? '#4ade80' : '#888';
+      sigBtn.style.borderColor = paused === false ? '#4ade80' : '#2a2a3a';
+    }
+  }
+
+  // Timeline also benefits from smooth redraw (events slide left)
+  drawTimeline(document.getElementById('timeline-canvas'), signalEvents);
+}
+
+function renderLoop() {
+  drawChartsSmooth();
+  requestAnimationFrame(renderLoop);
+}
+
+renderTimelineLegend();
 connect();
+requestAnimationFrame(renderLoop);
 </script>
 </body>
 </html>
