@@ -1,18 +1,25 @@
 # DelightfulOS
 
-A distributed wearable operating system for embodied AI — social awareness, real-time audio intelligence, and XR integration. Built for Snap Spectacles with a platform-agnostic XR layer designed to support Quest, Vision Pro, and WebXR.
+A distributed operating system for real-time interactions between wearable devices under an Internet of Bodies framework. Connects body-worn sensors, AR glasses, and AI into a unified signal bus where your body state drives shared perception.
+
+Built by [Delightful.vision](https://delightful.vision). Currently integrated with Snap Spectacles and a custom piezo collar, with a platform-agnostic XR layer supporting Quest, Vision Pro, and WebXR.
 
 ## What It Does
 
-DelightfulOS connects body-worn sensors (a piezo contact-mic collar) and AR glasses (Snap Spectacles) into a unified signal bus. The OS estimates each user's body state in real time — speech intent, stress, engagement, attention — and uses rule-based policies and LLM mediation to drive AR overlays, haptic feedback, and social cues.
+DelightfulOS proposes that the most meaningful AI interfaces are not screens or speakers, but the body itself — sensed, augmented, and shared.
+
+A piezo contact microphone on your throat detects speech intent ~200ms before you make a sound. AR overlays on Spectacles show others your body state in real time. Tapping someone's collar changes what you see over them. The collar is a physical interface that others use to shape their experience of you.
 
 **Core capabilities:**
 - Real-time body state estimation from piezo contact microphone signals
 - Bidirectional audio AI via Gemini Live (listen, transcribe, respond, summarize)
 - AR overlays and social cues pushed to Snap Spectacles via Supabase Realtime
-- LLM-powered social mediation (detects interruptions, stress, turn-taking)
-- AI-assisted wearable hardware co-design via a Hardware Description Language
+- Rule-based and LLM-powered social mediation (turn-taking, stress, interruptions)
+- Signal-reactive policies for low-latency physical interactions (collar tap -> AR)
+- Modular Hardware Description Language for wearable co-design with AI
 - Multi-user, multi-device — every user gets independent state tracking
+
+See [docs/VISION.md](docs/VISION.md) for the full conceptual and technical position.
 
 ## Architecture
 
@@ -165,6 +172,7 @@ Create `server/.env` from `.env.example`:
 | `WS` | `/collar/ws/{user_id}/raw` | Collar raw audio mode (PCM stream) |
 | `GET` | `/collar/connected` | Connected collars with status |
 | `POST` | `/collar/calibrate/{user_id}` | Trigger collar calibration |
+| `POST` | `/collar/tap/{user_id}` | Trigger collar tap (physical or simulated) |
 
 ### AI
 | Method | Path | Description |

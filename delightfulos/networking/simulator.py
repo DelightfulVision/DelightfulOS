@@ -107,6 +107,18 @@ class CollarSimulator:
 
             await asyncio.sleep(0.2)
 
+    async def tap(self):
+        """Simulate a collar tap event (as if another person tapped this collar)."""
+        if not self._running:
+            return
+        await bus.emit_signal(Signal(
+            source_device=self.device_id,
+            source_user=self.user_id,
+            signal_type="collar_tap",
+            confidence=1.0,
+        ))
+        log.info("Simulated collar tap on %s", self.user_id)
+
 
 # Active simulators
 _simulators: dict[str, CollarSimulator] = {}
@@ -125,6 +137,15 @@ async def stop_simulator(user_id: str):
     sim = _simulators.pop(user_id, None)
     if sim:
         await sim.stop()
+
+
+async def tap_collar(user_id: str) -> bool:
+    """Simulate a tap on a user's collar. Returns True if simulator exists."""
+    sim = _simulators.get(user_id)
+    if sim:
+        await sim.tap()
+        return True
+    return False
 
 
 async def stop_all():
