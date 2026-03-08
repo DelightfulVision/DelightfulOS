@@ -135,6 +135,7 @@ TapState tapState = TAP_IDLE;
 int tapFrameCount = 0;
 float tapSpikePeak = 0;
 float tapSpikeZCR = 0;            // zero-crossing rate for shape check
+float tapSpikeRMSMax = 0;         // max RMS seen during spike (cough rejection)
 const int TAP_SCAN_FRAMES = 2;    // scan window: find true peak (200ms)
 const int TAP_MAX_DROP_FRAMES = 3; // must drop back within 300ms after scan
 const int TAP_MASK_MS = 400;       // post-tap mask: ignore piezo ringing
@@ -227,6 +228,7 @@ bool detectTap() {
                 tapFrameCount = 1;
                 tapSpikePeak = peak;
                 tapSpikeZCR = zcr;
+                tapSpikeRMSMax = currentEnvelope;
             }
             break;
 
@@ -237,6 +239,7 @@ bool detectTap() {
                 tapSpikePeak = peak;
                 tapSpikeZCR = zcr;
             }
+            if (currentEnvelope > tapSpikeRMSMax) tapSpikeRMSMax = currentEnvelope;
             if (tapFrameCount >= TAP_SCAN_FRAMES) {
                 // Scan done — now wait for signal to drop back
                 tapState = TAP_CONFIRM_DROP;
@@ -246,14 +249,27 @@ bool detectTap() {
 
         case TAP_CONFIRM_DROP:
             tapFrameCount++;
+            if (currentEnvelope > tapSpikeRMSMax) tapSpikeRMSMax = currentEnvelope;
             if (!aboveThreshold) {
-                // Signal dropped back — confirmed transient shape
-                tapState = TAP_IDLE;
-                lastTapMs = now;
-                float confidence = min(1.0f, (tapSpikePeak - baselineRMS) / (tapDeltaThreshold * 2));
-                Serial.printf("[TAP] peak=%.4f base=%.4f delta=%.4f zcr=%.3f conf=%.2f\n",
-                    tapSpikePeak, baselineRMS, tapSpikePeak - baselineRMS, tapSpikeZCR, confidence);
-                return true;
+                // Peak dropped back. Check if spike had elevated RMS
+                // (vocalization) vs brief peak transient (tap).
+                // Tap: only a few samples spike, buffer RMS stays near baseline.
+                // Cough: entire buffer is elevated, RMS jumps way above baseline.
+                float rmsDelta = tapSpikeRMSMax - baselineRMS;
+                if (rmsDelta < tapDeltaThreshold * 0.8) {
+                    // RMS near baseline throughout — confirmed tap
+                    tapState = TAP_IDLE;
+                    lastTapMs = now;
+                    float confidence = min(1.0f, (tapSpikePeak - baselineRMS) / (tapDeltaThreshold * 2));
+                    Serial.printf("[TAP] peak=%.4f base=%.4f delta=%.4f zcr=%.3f conf=%.2f\n",
+                        tapSpikePeak, baselineRMS, tapSpikePeak - baselineRMS, tapSpikeZCR, confidence);
+                    return true;
+                } else {
+                    // RMS was elevated during spike — vocalization, not a tap
+                    tapState = TAP_IDLE;
+                    Serial.printf("[TAP] rejected: spike RMS %.4f >> base %.4f (cough/voice)\n",
+                        tapSpikeRMSMax, baselineRMS);
+                }
             }
             if (tapFrameCount > TAP_MAX_DROP_FRAMES) {
                 // Still above threshold — sustained, not a tap

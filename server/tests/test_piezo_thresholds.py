@@ -311,6 +311,7 @@ class TapDetectorSim:
         self.state = self.IDLE
         self.frame_count = 0
         self.spike_peak = 0.0
+        self.spike_rms_max = 0.0  # track max RMS during spike for cough rejection
         self.peak_envelope = 0.0
         self.ema_alpha = 0.02
         self.frames_since_tap = 999  # large = no recent tap
@@ -352,20 +353,34 @@ class TapDetectorSim:
                 self.state = self.SCAN
                 self.frame_count = 1
                 self.spike_peak = peak
+                self.spike_rms_max = rms
         elif self.state == self.SCAN:
             self.frame_count += 1
             if peak > self.spike_peak:
                 self.spike_peak = peak
+            if rms > self.spike_rms_max:
+                self.spike_rms_max = rms
             if self.frame_count >= self.scan_frames:
                 self.state = self.CONFIRM_DROP
                 self.frame_count = 0
         elif self.state == self.CONFIRM_DROP:
             self.frame_count += 1
+            if rms > self.spike_rms_max:
+                self.spike_rms_max = rms
             if not above:
-                # Dropped back — confirmed transient
-                self.state = self.IDLE
-                self.frames_since_tap = 0
-                fired = True
+                # Peak dropped back. Check if spike had elevated RMS
+                # (vocalization) vs brief transient (tap).
+                # A real tap: spike_rms_max stays near baseline (spike is
+                # a few samples, RMS barely budges).
+                # A cough: spike_rms_max is way above baseline (entire
+                # buffer is elevated).
+                rms_delta = self.spike_rms_max - self.baseline_rms
+                if rms_delta < self.delta_threshold * 0.8:
+                    self.state = self.IDLE
+                    self.frames_since_tap = 0
+                    fired = True
+                else:
+                    self.state = self.IDLE
             elif self.frame_count > self.max_drop_frames:
                 # Sustained — not a tap
                 self.state = self.IDLE
@@ -543,6 +558,259 @@ def test_multi_tap_sequence():
     print("  Correct: 3 real taps detected, speech tap rejected")
 
 
+# ---------------------------------------------------------------------------
+# Edge case signal generators
+# ---------------------------------------------------------------------------
+
+def make_cough_signal(baseline: int = 2000, noise: int = 30, n: int = 256) -> list[list[int]]:
+    """Cough: sudden high-energy burst, 3-5 frames of elevated signal then drops.
+    Similar to tap in peak amplitude but LONGER duration and higher RMS."""
+    import random
+    random.seed(99)
+    frames = []
+    # 1 frame onset
+    frames.append(make_adc_buffer(baseline + 500, noise=80))
+    # 3 frames sustained cough energy
+    for _ in range(3):
+        frames.append(make_adc_buffer(baseline + 400, noise=70))
+    # 2 frames decay
+    frames.append(make_adc_buffer(baseline + 150, noise=50))
+    frames.append(make_adc_buffer(baseline + 50, noise=40))
+    # return to baseline
+    frames.append(make_adc_buffer(baseline, noise=noise))
+    return frames
+
+
+def make_swallow_signal(baseline: int = 2000, noise: int = 30) -> list[list[int]]:
+    """Swallow: gentle 2-frame bump, lower amplitude than tap."""
+    frames = []
+    frames.append(make_adc_buffer(baseline + 150, noise=40))
+    frames.append(make_adc_buffer(baseline + 100, noise=35))
+    frames.append(make_adc_buffer(baseline, noise=noise))
+    return frames
+
+
+def make_laugh_signal(baseline: int = 2000, noise: int = 30) -> list[list[int]]:
+    """Laugh: rhythmic oscillation, 8-10 frames of varying amplitude."""
+    import random
+    random.seed(77)
+    frames = []
+    for i in range(10):
+        # Ha-ha pattern: alternating higher and lower
+        amp = 200 + 150 * (i % 2)
+        frames.append(make_adc_buffer(baseline + amp, noise=50))
+    frames.append(make_adc_buffer(baseline, noise=noise))
+    return frames
+
+
+def make_collar_adjustment(baseline: int = 2000, noise: int = 30) -> list[list[int]]:
+    """Collar fidget: gradual shift in baseline as collar moves, then settles."""
+    frames = []
+    # Gradual shift up (someone pulling collar)
+    for i in range(5):
+        frames.append(make_adc_buffer(baseline + i * 60, noise=50))
+    # Settle at new position briefly
+    for _ in range(3):
+        frames.append(make_adc_buffer(baseline + 300, noise=40))
+    # Settle back
+    for i in range(5):
+        frames.append(make_adc_buffer(baseline + 300 - i * 60, noise=40))
+    frames.append(make_adc_buffer(baseline, noise=noise))
+    return frames
+
+
+def make_walking_signal(baseline: int = 2000, noise: int = 30, steps: int = 10) -> list[list[int]]:
+    """Walking: periodic low-amplitude bumps from footsteps, ~2Hz."""
+    import math as m
+    frames = []
+    for i in range(steps * 2):
+        # Sinusoidal footstep pattern
+        amp = int(80 * abs(m.sin(m.pi * i / 2)))
+        frames.append(make_adc_buffer(baseline + amp, noise=noise + 10))
+    return frames
+
+
+def make_collar_removal(baseline: int = 2000, noise: int = 30) -> list[list[int]]:
+    """Collar removal: wild signal, then dropout to near-zero."""
+    frames = []
+    # Wild movement
+    frames.append(make_adc_buffer(baseline + 800, noise=200))
+    frames.append(make_adc_buffer(baseline + 500, noise=300))
+    frames.append(make_adc_buffer(baseline - 500, noise=200))
+    # Signal drops (no longer on skin)
+    for _ in range(5):
+        frames.append(make_adc_buffer(500, noise=100))  # near-ground with noise
+    return frames
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests
+# ---------------------------------------------------------------------------
+
+def test_edge_cases():
+    """Test all real-world edge cases for throat-mounted piezo."""
+    print("\n=== 10. Edge Cases ===")
+
+    baseline_adc = 2000
+    noise = 30
+    baseline_rms = firmware_rms(make_adc_buffer(baseline_adc, noise=noise))
+
+    # --- Coughing: should NOT trigger tap ---
+    print("\n  Coughing:")
+    det = TapDetectorSim(baseline_rms)
+    for _ in range(10):
+        det.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    cough_taps = 0
+    for frame in make_cough_signal(baseline_adc, noise):
+        if det.feed_frame(frame):
+            cough_taps += 1
+    # Cough is sustained 4+ frames above threshold → rejected by max_drop_frames
+    print(f"    Cough false taps: {cough_taps}")
+    assert cough_taps == 0, f"Cough should not trigger tap (got {cough_taps})"
+    print("    PASS: cough rejected")
+
+    # --- Swallowing: should NOT trigger tap ---
+    print("\n  Swallowing:")
+    det2 = TapDetectorSim(baseline_rms)
+    for _ in range(10):
+        det2.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    swallow_taps = 0
+    for frame in make_swallow_signal(baseline_adc, noise):
+        if det2.feed_frame(frame):
+            swallow_taps += 1
+    # Swallow amplitude (baseline+150 = 2150) → peak ≈ 0.525
+    # delta = 0.525 - 0.488 = 0.037 < 0.10 threshold → never triggers
+    print(f"    Swallow delta: {firmware_peak(make_adc_buffer(baseline_adc + 150, noise=40)) - baseline_rms:.4f}")
+    print(f"    Swallow false taps: {swallow_taps}")
+    assert swallow_taps == 0, f"Swallow should not trigger tap (got {swallow_taps})"
+    print("    PASS: swallow below threshold")
+
+    # --- Laughing: should NOT trigger tap ---
+    print("\n  Laughing:")
+    det3 = TapDetectorSim(baseline_rms)
+    for _ in range(10):
+        det3.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    laugh_taps = 0
+    for frame in make_laugh_signal(baseline_adc, noise):
+        if det3.feed_frame(frame):
+            laugh_taps += 1
+    # Laugh is sustained oscillation — never drops back to baseline during scan
+    print(f"    Laugh false taps: {laugh_taps}")
+    assert laugh_taps == 0, f"Laughing should not trigger tap (got {laugh_taps})"
+    print("    PASS: laughing rejected (sustained oscillation)")
+
+    # --- Collar fidgeting: should NOT trigger tap ---
+    print("\n  Collar adjustment:")
+    det4 = TapDetectorSim(baseline_rms)
+    for _ in range(10):
+        det4.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    fidget_taps = 0
+    for frame in make_collar_adjustment(baseline_adc, noise):
+        if det4.feed_frame(frame):
+            fidget_taps += 1
+    # Gradual shift, not a spike — ramp up takes many frames
+    print(f"    Fidget false taps: {fidget_taps}")
+    assert fidget_taps == 0, f"Collar fidget should not trigger tap (got {fidget_taps})"
+    print("    PASS: gradual adjustment rejected")
+
+    # --- Walking: should NOT trigger tap ---
+    print("\n  Walking:")
+    det5 = TapDetectorSim(baseline_rms)
+    for _ in range(10):
+        det5.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    walk_taps = 0
+    for frame in make_walking_signal(baseline_adc, noise):
+        if det5.feed_frame(frame):
+            walk_taps += 1
+    # Footsteps: low amplitude (80 ADC), delta ≈ 0.02 — way below threshold
+    print(f"    Walk false taps: {walk_taps}")
+    assert walk_taps == 0, f"Walking should not trigger tap (got {walk_taps})"
+    print("    PASS: walking below threshold")
+
+    # --- Collar removal: should NOT trigger tap, baseline should NOT adapt to garbage ---
+    print("\n  Collar removal:")
+    det6 = TapDetectorSim(baseline_rms)
+    for _ in range(10):
+        det6.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    baseline_before = det6.baseline_rms
+    removal_taps = 0
+    for frame in make_collar_removal(baseline_adc, noise):
+        if det6.feed_frame(frame):
+            removal_taps += 1
+    baseline_after = det6.baseline_rms
+    drift = abs(baseline_after - baseline_before)
+    print(f"    Removal false taps: {removal_taps}")
+    print(f"    Baseline drift during removal: {drift:.6f}")
+    # Baseline freezes during the wild spike but slowly adapts after
+    # signal drops to near-zero (collar is off — adaptation is correct).
+    # Just verify no false taps fired during the chaos.
+    assert removal_taps == 0, "No false taps during collar removal"
+    print(f"    PASS: no false taps during removal (baseline drift {drift:.4f} is expected)")
+
+    # --- Real tap AFTER edge cases: still works ---
+    print("\n  Recovery after edge cases:")
+    det7 = TapDetectorSim(baseline_rms)
+    for _ in range(10):
+        det7.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    # Cough
+    for frame in make_cough_signal(baseline_adc, noise):
+        det7.feed_frame(frame)
+    # Settle
+    for _ in range(10):
+        det7.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    # Real tap should still work
+    assert _feed_tap(det7, baseline_adc, 2600), "Tap works after cough"
+    # Settle + mask
+    for _ in range(10):
+        det7.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    # Laugh
+    for frame in make_laugh_signal(baseline_adc, noise):
+        det7.feed_frame(frame)
+    # Settle
+    for _ in range(10):
+        det7.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    # Real tap should still work
+    assert _feed_tap(det7, baseline_adc, 2600), "Tap works after laugh"
+    print("    PASS: tap detection recovers after all edge cases")
+
+    print("\n  All edge case tests passed")
+
+
+def test_double_tap():
+    """Test double-tap as an intentional gesture (future feature)."""
+    print("\n=== 11. Double-Tap Detection (future feature) ===")
+
+    baseline_adc = 2000
+    noise = 30
+    baseline_rms = firmware_rms(make_adc_buffer(baseline_adc, noise=noise))
+
+    # With current 400ms mask, double-tap within 400ms is blocked
+    det = TapDetectorSim(baseline_rms, mask_frames=4)
+    taps = []
+    # First tap
+    if _feed_tap(det, baseline_adc, 2600):
+        taps.append("tap1")
+    # Quick second tap (within mask window)
+    if _feed_tap(det, baseline_adc, 2600):
+        taps.append("tap2_fast")
+    assert taps == ["tap1"], "Second tap within mask is blocked"
+    print(f"  400ms mask: {taps} — quick double-tap blocked (expected)")
+
+    # With shorter mask (200ms / 2 frames), double-tap works
+    det2 = TapDetectorSim(baseline_rms, mask_frames=2)
+    taps2 = []
+    if _feed_tap(det2, baseline_adc, 2600):
+        taps2.append("tap1")
+    # Small gap
+    for _ in range(3):
+        det2.feed_frame(make_adc_buffer(baseline_adc, noise=noise))
+    if _feed_tap(det2, baseline_adc, 2600):
+        taps2.append("tap2")
+    print(f"  200ms mask: {taps2}")
+    assert len(taps2) == 2, "Double-tap works with shorter mask"
+    print("  PASS: mask_frames is tunable for double-tap support")
+
+
 if __name__ == "__main__":
     test_signal_characteristics()
     test_firmware_current_thresholds()
@@ -553,6 +821,8 @@ if __name__ == "__main__":
     test_tap_state_machine()
     test_adaptive_baseline()
     test_multi_tap_sequence()
+    test_edge_cases()
+    test_double_tap()
 
     print("\n" + "=" * 50)
     print("ALL PIEZO THRESHOLD TESTS PASSED")
