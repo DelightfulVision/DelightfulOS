@@ -25,6 +25,8 @@ from delightfulos import __version__
 from delightfulos.runtime.managers import runtime
 from delightfulos.networking.simulator import stop_all as stop_all_simulators
 from delightfulos.ai.gemini_live import gemini_live
+from delightfulos.networking.supabase_rt import supabase_bridge
+from delightfulos.ai.config import settings
 from app.routers import ai, collar, hdl, system
 
 log = logging.getLogger("delightfulos.server")
@@ -34,9 +36,22 @@ log = logging.getLogger("delightfulos.server")
 async def lifespan(app: FastAPI):
     runtime.start()
     runtime.start_background_tasks()
+
+    # Connect Supabase Realtime bridge if configured
+    if settings.supabase_url and settings.supabase_anon_key:
+        try:
+            await supabase_bridge.connect(
+                settings.supabase_url,
+                settings.supabase_anon_key,
+                settings.supabase_channel,
+            )
+        except Exception:
+            log.warning("Supabase Realtime bridge failed to connect (non-fatal)", exc_info=True)
+
     log.info("DelightfulOS v%s started", __version__)
     yield
     await stop_all_simulators()
+    await supabase_bridge.disconnect()
     await gemini_live.shutdown()
     await runtime.shutdown()
 

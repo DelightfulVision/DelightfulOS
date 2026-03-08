@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_live_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
 
+    # Supabase Realtime (Snap Spectacles via snapcloud.dev)
+    # Channel name: Spectacles join "cursor-{channel}", so set this to match
+    # the channelName in RealtimeCursor.ts (e.g. "spectacles" -> "cursor-spectacles")
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_channel: str = "spectacles"
+
     # Signal processing
     piezo_sample_rate: int = 4000
     speech_threshold: float = 0.15

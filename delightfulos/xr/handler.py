@@ -115,11 +115,14 @@ async def handle_xr_connection(ws: WebSocket, user_id: str):
                     signal_type="scene_update",
                     value=scene.to_dict(),
                 ))
-                # Send back current state
-                state = estimator.get(user_id)
+                # Send back all users' states for multiplayer rendering
+                all_states = estimator.all_states()
                 await ws.send_text(json.dumps(XROutputCommand(
-                    type=XROutputType.STATE_UPDATE,
-                    payload={"state": state.to_dict()},
+                    type=XROutputType.USER_STATES,
+                    payload={
+                        "users": [s.to_dict() for s in all_states],
+                        "self_user_id": user_id,
+                    },
                 ).to_dict()))
                 continue
 
@@ -137,11 +140,14 @@ async def handle_xr_connection(ws: WebSocket, user_id: str):
                 timestamp=event.timestamp or time.time(),
             ))
 
-            # Send back updated state
-            state = estimator.get(user_id)
+            # Send back all users' states for multiplayer rendering
+            all_states = estimator.all_states()
             await ws.send_text(json.dumps(XROutputCommand(
-                type=XROutputType.STATE_UPDATE,
-                payload={"state": state.to_dict()},
+                type=XROutputType.USER_STATES,
+                payload={
+                    "users": [s.to_dict() for s in all_states],
+                    "self_user_id": user_id,
+                },
             ).to_dict()))
 
     except WebSocketDisconnect:

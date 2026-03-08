@@ -10,6 +10,8 @@ from delightfulos.os.registry import registry
 from delightfulos.os.state import estimator, UserMode
 from delightfulos.os.bus import bus
 from delightfulos.networking import glasses, simulator
+from delightfulos.networking.supabase_rt import supabase_bridge
+from delightfulos.ai.config import settings
 from delightfulos.xr.handler import handle_xr_connection
 from delightfulos.xr.session import session_manager
 
@@ -224,3 +226,48 @@ async def dashboard_ws(ws: WebSocket):
         pass
     except Exception:
         log.exception("Dashboard WebSocket error")
+
+
+# === Supabase Realtime (Snap Spectacles) ===
+
+@router.get("/supabase/status")
+async def supabase_status():
+    """Check Supabase Realtime bridge status."""
+    return {
+        "connected": supabase_bridge.connected,
+        "channel": supabase_bridge._channel,
+        "url": supabase_bridge._url,
+    }
+
+
+@router.post("/supabase/connect")
+async def supabase_connect():
+    """Connect the Supabase Realtime bridge (uses env config)."""
+    if supabase_bridge.connected:
+        return {"status": "already_connected", "channel": supabase_bridge._channel}
+
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        raise HTTPException(status_code=503, detail="SUPABASE_URL/SUPABASE_ANON_KEY not configured")
+
+    await supabase_bridge.connect(
+        settings.supabase_url,
+        settings.supabase_anon_key,
+        settings.supabase_channel,
+    )
+    return {"status": "connected", "channel": settings.supabase_channel}
+
+
+@router.post("/supabase/disconnect")
+async def supabase_disconnect():
+    """Disconnect the Supabase Realtime bridge."""
+    await supabase_bridge.disconnect()
+    return {"status": "disconnected"}
+
+
+@router.post("/supabase/broadcast/{event}")
+async def supabase_broadcast(event: str, payload: dict):
+    """Send a broadcast event to the Spectacles channel."""
+    if not supabase_bridge.connected:
+        raise HTTPException(status_code=503, detail="Supabase bridge not connected")
+    await supabase_bridge.broadcast(event, payload)
+    return {"status": "sent", "event": event}
