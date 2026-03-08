@@ -24,6 +24,7 @@ from delightfulos.os.registry import registry
 from delightfulos.runtime.policy import evaluate_rules, evaluate_signal
 from delightfulos.runtime.output import route_action
 from delightfulos.ai.transcribe import transcriber
+from delightfulos.ai.context import context_log
 
 log = logging.getLogger("delightfulos.runtime")
 
@@ -189,30 +190,8 @@ class AIMediatorManager:
         if len(recent) < self.MIN_SIGNALS_FOR_MEDIATION:
             return
 
-        # Build context for the LLM
-        context = {
-            "users": {
-                uid: {
-                    "speech_intent": round(s.speech_intent, 2),
-                    "speech_active": s.speech_active,
-                    "stress_level": round(s.stress_level, 2),
-                    "engagement": round(s.engagement, 2),
-                    "attention_direction": s.attention_direction,
-                    "interaction_ready": s.interaction_ready,
-                    "overloaded": s.overloaded,
-                }
-                for uid, s in active_states.items()
-            },
-            "recent_signals": [
-                {
-                    "user": sig.source_user,
-                    "type": sig.signal_type,
-                    "confidence": round(sig.confidence, 2),
-                }
-                for sig in recent[-10:]  # last 10 signals
-            ],
-            "num_users": len(active_states),
-        }
+        # Build context for the LLM using the structured context log
+        context = context_log.for_llm(limit=20)
 
         raw = await chat(
             messages=[
@@ -301,6 +280,7 @@ class Runtime:
         self.device_manager.start_cleanup_loop()
         self.ai_mediator.start()
         transcriber.start()
+        context_log.start()
 
     async def shutdown(self):
         """Cancel all background tasks. Call on server shutdown."""

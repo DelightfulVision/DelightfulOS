@@ -36,6 +36,7 @@ from google.genai import types
 
 from delightfulos.os.types import Signal
 from delightfulos.os.bus import bus
+from delightfulos.ai.context import context_log
 
 log = logging.getLogger("delightfulos.gemini_live")
 
@@ -49,7 +50,10 @@ SYSTEM_INSTRUCTION = (
     "1. Listen and understand what's being discussed\n"
     "2. When asked, provide brief helpful responses via audio\n"
     "3. Track conversation topics for later summarization\n"
-    "Be concise. You're in someone's ear — don't ramble."
+    "4. You have access to body sensor context (stress, speech intent, engagement) — "
+    "use it to understand the social dynamics\n"
+    "Be concise. You're in someone's ear — don't ramble.\n\n"
+    "CURRENT SENSOR CONTEXT:\n{context_narrative}"
 )
 
 
@@ -74,9 +78,12 @@ class LiveSessionState:
 class GeminiLiveManager:
     """Manages per-user Gemini Live sessions for realtime audio."""
 
+    CONTEXT_PUSH_INTERVAL = 10.0  # push sensor context every 10s
+
     def __init__(self):
         self._sessions: dict[str, LiveSessionState] = {}
         self._client: genai.Client | None = None
+        self._context_push_task: asyncio.Task | None = None
 
     def _get_client(self) -> genai.Client:
         if self._client is None:
@@ -117,9 +124,14 @@ class GeminiLiveManager:
         else:
             resume_config = types.SessionResumptionConfig()
 
+        # Inject current sensor narrative into system instruction
+        instruction = system_instruction or SYSTEM_INSTRUCTION
+        narrative = context_log.narrative(limit=15, user=user_id)
+        instruction = instruction.replace("{context_narrative}", narrative)
+
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
-            system_instruction=system_instruction or SYSTEM_INSTRUCTION,
+            system_instruction=instruction,
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice),
@@ -152,6 +164,10 @@ class GeminiLiveManager:
 
         state._receive_task = asyncio.create_task(self._receive_loop(state))
         self._sessions[user_id] = state
+
+        # Start periodic context push if not already running
+        if self._context_push_task is None or self._context_push_task.done():
+            self._context_push_task = asyncio.create_task(self._context_push_loop())
 
         log.info("Gemini Live connected for user %s", user_id)
         return state
@@ -365,6 +381,30 @@ class GeminiLiveManager:
             log.exception("Artifact generation failed for %s", user_id)
             return None
 
+    async def _context_push_loop(self):
+        """Periodically push sensor context narrative to active Gemini Live sessions."""
+        try:
+            while True:
+                await asyncio.sleep(self.CONTEXT_PUSH_INTERVAL)
+                narrative = context_log.narrative(limit=10)
+                if narrative == "No significant events yet.":
+                    continue
+                for user_id, state in list(self._sessions.items()):
+                    if state.connected:
+                        user_narrative = context_log.narrative(limit=8, user=user_id)
+                        text = (
+                            f"[SENSOR UPDATE] Recent social dynamics:\n{narrative}\n"
+                            f"Your user ({user_id}):\n{user_narrative}"
+                        )
+                        try:
+                            await self.send_text(user_id, text)
+                        except Exception:
+                            log.debug("Failed to push context to %s", user_id)
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            log.warning("Context push loop error", exc_info=True)
+
     def get_session(self, user_id: str) -> LiveSessionState | None:
         return self._sessions.get(user_id)
 
@@ -373,6 +413,12 @@ class GeminiLiveManager:
 
     async def shutdown(self):
         """Disconnect all sessions."""
+        if self._context_push_task and not self._context_push_task.done():
+            self._context_push_task.cancel()
+            try:
+                await self._context_push_task
+            except asyncio.CancelledError:
+                pass
         for user_id in list(self._sessions):
             await self.disconnect(user_id)
 
