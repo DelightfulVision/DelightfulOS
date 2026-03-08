@@ -1,0 +1,30 @@
+[project]
+name = "delightfulos"
+version = "0.3.0"
+description = "Distributed Wearable Operating System for Embodied AI"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "openai>=1.60.0",
+    "websockets>=14.0",
+    "pydantic>=2.10.0",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.0.0",
+    "pydantic-settings>=2.7.0",
+    "google-genai>=1.60.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.9.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["delightfulos*"]
