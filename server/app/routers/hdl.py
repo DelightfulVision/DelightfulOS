@@ -97,9 +97,9 @@ async def design_wearable(req: DesignRequest):
             {"role": "system", "content": CODESIGN_SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ],
-        model=settings.model_quality,
-        max_tokens=2048,
-        temperature=0.5,
+        model=settings.model_codesign,
+        max_tokens=4096,
+        temperature=1.0,  # K2 Think V2 recommended: temperature=1.0
     )
 
     try:
@@ -136,9 +136,9 @@ async def analyze_system(req: AnalyzeRequest):
             {"role": "system", "content": GAP_ANALYSIS_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
-        model=settings.model_quality,
-        max_tokens=2048,
-        temperature=0.5,
+        model=settings.model_codesign,
+        max_tokens=4096,
+        temperature=1.0,  # K2 Think V2 recommended: temperature=1.0
     )
 
     try:

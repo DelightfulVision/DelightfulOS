@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     model_vision: str = "google/gemini-2.5-flash"
     model_thinking: str = "deepseek/deepseek-r1-0528"
     model_transcription: str = "google/gemini-2.5-flash"
+    model_codesign: str = "MBZUAI-IFM/K2-Think-v2"  # K2 for multi-step hardware reasoning
+
+    # K2 Think V2 — MBZUAI/IFM 70B reasoning model (separate API)
+    # Strengths: complex multi-step reasoning, math, long-context (131K), low hallucination
+    # Best for: HDL co-design, gap analysis, system architecture reasoning
+    k2_api_key: str = ""
+    k2_base_url: str = "https://api.k2think.ai/v1"
+    k2_model: str = "MBZUAI-IFM/K2-Think-v2"
 
     # Google Gemini direct (for Gemini Live realtime audio)
     gemini_api_key: str = ""
