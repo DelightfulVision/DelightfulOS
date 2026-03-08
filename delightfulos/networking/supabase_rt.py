@@ -418,6 +418,7 @@ class SupabaseRealtimeBridge:
                         "attention_direction": state.attention_direction,
                         "overloaded": state.overloaded,
                         "mode": state.mode.value,
+                        "hidden_overlays": sorted(state.hidden_overlays),
                     }
                     all_users.append(user_data)
                     # Per-user event for simple clients
